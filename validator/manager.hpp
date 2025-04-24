@@ -46,6 +46,9 @@ namespace ton {
 
 namespace validator {
 
+class KafkaPublisher;
+
+
 class WaitBlockState;
 class WaitZeroState;
 class WaitShardState;

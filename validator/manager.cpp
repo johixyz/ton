@@ -16,9 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-
-#pragma once
-
 #include "manager.hpp"
 #include "checksum.h"
 #include "td/utils/buffer.h"
@@ -55,8 +52,6 @@
 namespace ton {
 
 namespace validator {
-
-class KafkaPublisher;
 
 void ValidatorManagerImpl::validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id,
                                                         td::BufferSlice proof, td::Promise<td::Unit> promise) {
