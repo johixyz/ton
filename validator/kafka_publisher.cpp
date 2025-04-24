@@ -126,20 +126,22 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
 
   // Basic state info
   if (state.not_null()) {
-    auto state_info = json("state_info", td::JsonRaw("{}")).enter_value().enter_object();
+    auto state_info_json = jb.enter_object();
 
-    state_info("is_masterchain", state->get_shard().is_masterchain() ? 1 : 0);
+    state_info_json("is_masterchain", state->get_shard().is_masterchain() ? 1 : 0);
     if (!state->get_shard().is_masterchain()) {
-      state_info("shard_full", state->get_shard().to_str());
+      state_info_json("shard_full", state->get_shard().to_str());
     }
-    state_info("global_id", static_cast<td::int32>(state->get_global_id()));
-    state_info("seqno", static_cast<td::int32>(state->get_seqno()));
-    state_info("logical_time", static_cast<td::int64>(state->get_logical_time()));
+    state_info_json("global_id", static_cast<td::int32>(state->get_global_id()));
+    state_info_json("seqno", static_cast<td::int32>(state->get_seqno()));
+    state_info_json("logical_time", static_cast<td::int64>(state->get_logical_time()));
 
     if (!state->get_shard().is_masterchain()) {
       BlockIdExt mc_blkid = state->get_block_id();
-      state_info("referred_mc_block", mc_blkid.to_str());
+      state_info_json("referred_mc_block", mc_blkid.to_str());
     }
+
+    json("state_info", td::JsonRaw(state_info_json.sb_->as_cslice()));
   }
 
   return jb.string_builder().as_cslice().str();
