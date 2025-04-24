@@ -31,6 +31,7 @@
 #include "state-serializer.hpp"
 #include "get-next-key-blocks.h"
 #include "import-db-slice.hpp"
+#include "kafka_publisher.hpp"
 
 #include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
@@ -1425,6 +1426,9 @@ void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState
 }
 
 void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
+
+  publish_block_to_kafka(handle, state);
+
   if (handle->is_applied()) {
     return new_block_cont(std::move(handle), std::move(state), std::move(promise));
   } else {
@@ -1729,6 +1733,12 @@ void ValidatorManagerImpl::start_up() {
   }
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
+
+  std::string kafka_brokers = opts_->get_kafka_brokers();
+  if (!kafka_brokers.empty()) {
+    kafka_publisher_ = std::make_unique<KafkaPublisher>(
+        kafka_brokers, opts_->get_kafka_blocks_topic());
+  }
 
   check_waiters_at_ = td::Timestamp::in(1.0);
   alarm_timestamp().relax(check_waiters_at_);
@@ -3372,6 +3382,12 @@ void ValidatorManagerImpl::add_persistent_state_description_impl(td::Ref<Persist
 void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs) {
   for (auto &desc : descs) {
     add_persistent_state_description_impl(std::move(desc));
+  }
+}
+
+void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state) {
+  if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
+    kafka_publisher_->publish_block(handle, state);
   }
 }
 

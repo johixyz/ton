@@ -2,8 +2,17 @@ if (NOT OPENSSL_FOUND)
   find_package(OpenSSL REQUIRED)
 endif()
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(RDKAFKA REQUIRED rdkafka)
+
+
+
 #add_subdirectory(dummy0)
 add_subdirectory(impl)
+
+set(VALIDATOR_KAFKA_SOURCE
+        validator/kafka_publisher.cpp
+)
 
 set(VALIDATOR_DB_SOURCE
   db/archiver.cpp
@@ -168,6 +177,12 @@ set(FULL_NODE_SOURCE
   net/get-next-key-blocks.cpp
 )
 
+# Update the validator source files
+set(VALIDATOR_SOURCE
+        ${VALIDATOR_SOURCE}
+        ${VALIDATOR_KAFKA_SOURCE}
+)
+
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
@@ -178,6 +193,7 @@ target_include_directories(validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
   ${OPENSSL_INCLUDE_DIR}
+  ${RDKAFKA_INCLUDE_DIRS}
 )
 
 target_include_directories(validator-disk PUBLIC 
@@ -201,7 +217,7 @@ target_include_directories(full-node PUBLIC
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_link_libraries(validator PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db ${RDKAFKA_LIBRARIES})
 
 target_link_libraries(validator-disk PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
 

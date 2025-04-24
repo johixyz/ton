@@ -256,6 +256,30 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     catchain_broadcast_speed_multipliers_ = value;
   }
 
+  std::string get_kafka_brokers() const override {
+    return kafka_brokers_;
+  }
+
+  std::string get_kafka_blocks_topic() const override {
+    return kafka_blocks_topic_;
+  }
+
+  bool get_kafka_enabled() const override {
+    return kafka_enabled_;
+  }
+
+  void set_kafka_brokers(std::string brokers) override {
+    kafka_brokers_ = std::move(brokers);
+  }
+
+  void set_kafka_blocks_topic(std::string topic) override {
+    kafka_blocks_topic_ = std::move(topic);
+  }
+
+  void set_kafka_enabled(bool enabled) override {
+    kafka_enabled_ = enabled;
+  }
+
   ValidatorManagerOptionsImpl *make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
   }
@@ -309,6 +333,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
   double catchain_broadcast_speed_multipliers_;
+  std::string kafka_brokers_;
+  std::string kafka_blocks_topic_ = "ton-blocks";
+  bool kafka_enabled_ = false;
 };
 
 }  // namespace validator

@@ -310,6 +310,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   std::vector<PerfTimerStats> perf_timer_stats;
 
+  std::unique_ptr<KafkaPublisher> kafka_publisher_;
+
   void new_masterchain_block();
   void update_shard_overlays();
   void update_shards();
@@ -333,6 +335,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void checked_archive_slice(BlockSeqno new_last_mc_seqno, BlockSeqno new_shard_client_seqno);
   void finish_prestart_sync();
   void completed_prestart_sync();
+
+  void publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state);
+
 
  public:
   void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) override {
