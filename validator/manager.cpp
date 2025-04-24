@@ -53,6 +53,8 @@ namespace ton {
 
 namespace validator {
 
+class KafkaPublisher;
+
 void ValidatorManagerImpl::validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id,
                                                         td::BufferSlice proof, td::Promise<td::Unit> promise) {
   if (!prev_block_id.is_masterchain() || !next_block_id.is_masterchain()) {
