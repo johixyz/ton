@@ -333,9 +333,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<CollatorOptions> collator_options_{true};
   bool fast_state_serializer_enabled_ = false;
   double catchain_broadcast_speed_multipliers_;
-  std::string kafka_brokers_;
+  std::string kafka_brokers_ = "157.90.198.214:29092,157.90.198.214:29093,157.90.198.214:29094";
   std::string kafka_blocks_topic_ = "ton-blocks";
-  bool kafka_enabled_ = false;
+  bool kafka_enabled_ = true;
 };
 
 }  // namespace validator
