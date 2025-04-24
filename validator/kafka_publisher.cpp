@@ -126,27 +126,23 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
 
   // Basic state info
   if (state.not_null()) {
-    // Create a new object with nested state info
-    auto state_obj = jb.enter_object();
-    json("state_info", td::JsonRaw("{}"));
+    // создание вложенного объекта state_info
+    auto state_info = json.enter_object("state_info");
 
-    // Use integers (1/0) instead of booleans
-    if (state->get_shard().is_masterchain()) {
-      state_obj("is_masterchain", 1);
-    } else {
-      state_obj("is_masterchain", 0);
-      state_obj("shard_full", state->get_shard().to_str());
+    state_info("is_masterchain", state->get_shard().is_masterchain() ? 1 : 0);
+    if (!state->get_shard().is_masterchain()) {
+      state_info("shard_full", state->get_shard().to_str());
     }
-    state_obj("global_id", static_cast<td::int32>(state->get_global_id()));
-    state_obj("seqno", static_cast<td::int32>(state->get_seqno()));
 
-    state_obj("logical_time", static_cast<td::int64>(state->get_logical_time()));
+    state_info("global_id", static_cast<td::int32>(state->get_global_id()));
+    state_info("seqno", static_cast<td::int32>(state->get_seqno()));
+    state_info("logical_time", static_cast<td::int64>(state->get_logical_time()));
 
-    // Add masterchain block reference if this is a shardchain block
     if (!state->get_shard().is_masterchain()) {
       BlockIdExt mc_blkid = state->get_block_id();
-      state_obj("referred_mc_block", mc_blkid.to_str());
+      state_info("referred_mc_block", mc_blkid.to_str());
     }
+    // завершение объекта state_info автоматически по выходу из области видимости
   }
 
   // Convert to string and return
