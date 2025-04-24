@@ -126,7 +126,9 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
 
   // Basic state info
   if (state.not_null()) {
-    auto state_info_json = jb.enter_object();
+    td::JsonBuilder state_info_jb;
+    auto state_info_json = state_info_jb.enter_object();
+
 
     state_info_json("is_masterchain", state->get_shard().is_masterchain() ? 1 : 0);
     if (!state->get_shard().is_masterchain()) {
