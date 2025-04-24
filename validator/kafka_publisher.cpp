@@ -95,60 +95,60 @@ void KafkaPublisher::publish_block(BlockHandle handle, td::Ref<ShardState> state
 
 std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardState> state) {
   td::JsonBuilder jb;
-  {
-    auto json = jb.enter_object();
+  auto json = jb.enter_object();
 
-    // Block identification
-    json("block_id", handle->id().to_str());
-    json("workchain", static_cast<td::int32>(handle->id().id.workchain));
-    json("shard", td::to_string(handle->id().id.shard));
-    json("seqno", static_cast<td::int32>(handle->id().id.seqno));
-    json("root_hash", td::base64_encode(handle->id().root_hash.as_slice()));
-    json("file_hash", td::base64_encode(handle->id().file_hash.as_slice()));
+  // Block identification
+  json("block_id", handle->id().to_str());
+  json("workchain", static_cast<td::int32>(handle->id().id.workchain));
+  json("shard", td::to_string(handle->id().id.shard));
+  json("seqno", static_cast<td::int32>(handle->id().id.seqno));
+  json("root_hash", td::base64_encode(handle->id().root_hash.as_slice()));
+  json("file_hash", td::base64_encode(handle->id().file_hash.as_slice()));
 
-    // Block metadata
-    if (handle->inited_unix_time()) {
-      json("unix_time", static_cast<td::int32>(handle->unix_time()));
+  // Block metadata
+  if (handle->inited_unix_time()) {
+    json("unix_time", static_cast<td::int32>(handle->unix_time()));
+  }
+  if (handle->inited_is_key_block()) {
+    // Use integers instead of booleans (booleans are not supported in JsonBuilder)
+    json("is_key_block", handle->is_key_block() ? 1 : 0);
+  }
+
+  // Previous blocks
+  if (handle->inited_prev_left()) {
+    json("prev_block", handle->one_prev(true).to_str());
+  }
+
+  // If it's a merge block, add the second previous block
+  if (handle->merge_before()) {
+    json("prev_block_2", handle->one_prev(false).to_str());
+  }
+
+  // Basic state info
+  if (state.not_null()) {
+    auto state_obj = jb.enter_object();
+    json("state_info", td::JsonValue::Type::Object);
+
+    // Use integers (1/0) instead of booleans
+    if (state->get_shard().is_masterchain()) {
+      state_obj("is_masterchain", 1);
+    } else {
+      state_obj("is_masterchain", 0);
+      state_obj("shard_full", state->get_shard().to_str());
     }
-    if (handle->inited_is_key_block()) {
-      json("is_key_block", handle->is_key_block());
-    }
+    state_obj("global_id", static_cast<td::int32>(state->get_global_id()));
+    state_obj("seqno", static_cast<td::int32>(state->get_seqno()));
 
-    // Previous blocks
-    if (handle->inited_prev_left()) {
-      json("prev_block", handle->one_prev(true).to_str());
-    }
+    state_obj("logical_time", state->get_logical_time());
 
-    // If it's a merge block, add the second previous block
-    if (handle->merge_before()) {
-      json("prev_block_2", handle->one_prev(false).to_str());
-    }
-
-    // Basic state info
-    if (state.not_null()) {
-      auto state_obj = json.enter_object("state_info");
-      if (state->get_shard().is_masterchain()) {
-        state_obj("is_masterchain", true);
-      } else {
-        state_obj("is_masterchain", false);
-        state_obj("shard_full", state->get_shard().to_str());
-      }
-      state_obj("global_id", static_cast<td::int32>(state->get_global_id()));
-      state_obj("seqno", static_cast<td::int32>(state->get_seqno()));
-
-      // These fields need adaptation since the original methods don't exist
-      // Using safer alternatives based on ShardState API
-      state_obj("logical_time", state->get_logical_time());
-
-      // Add masterchain block reference if this is a shardchain block
-      if (!state->get_shard().is_masterchain()) {
-        BlockIdExt mc_blkid = state->get_block_id(); // Using available method instead of get_mc_block_id
-        state_obj("referred_mc_block", mc_blkid.to_str());
-      }
+    // Add masterchain block reference if this is a shardchain block
+    if (!state->get_shard().is_masterchain()) {
+      BlockIdExt mc_blkid = state->get_block_id();
+      state_obj("referred_mc_block", mc_blkid.to_str());
     }
   }
 
-  // Convert JsonBuilder to string
+  // Convert to string and return
   return jb.string_builder().as_cslice().str();
 }
 

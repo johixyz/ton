@@ -1737,8 +1737,8 @@ void ValidatorManagerImpl::start_up() {
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
 
   std::string kafka_brokers = opts_->get_kafka_brokers();
-  if (!kafka_brokers.empty()) {
-    kafka_publisher_ = std::make_unique<KafkaPublisher>(
+  if (opts_->get_kafka_enabled() && !kafka_brokers.empty()) {
+    kafka_publisher_ = std::make_unique(
         kafka_brokers, opts_->get_kafka_blocks_topic());
   }
 
@@ -3387,7 +3387,7 @@ void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref
   }
 }
 
-void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state) {
+void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref state) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
     kafka_publisher_->publish_block(handle, state);
   }
