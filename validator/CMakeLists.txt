@@ -11,7 +11,7 @@ pkg_check_modules(RDKAFKA REQUIRED rdkafka)
 add_subdirectory(impl)
 
 set(VALIDATOR_KAFKA_SOURCE
-        validator/kafka_publisher.cpp
+        kafka_publisher.cpp
 )
 
 set(VALIDATOR_DB_SOURCE
