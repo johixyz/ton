@@ -16,6 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
+#pragma once
+
 #include "manager.hpp"
 #include "checksum.h"
 #include "td/utils/buffer.h"
@@ -1738,7 +1741,7 @@ void ValidatorManagerImpl::start_up() {
 
   std::string kafka_brokers = opts_->get_kafka_brokers();
   if (opts_->get_kafka_enabled() && !kafka_brokers.empty()) {
-    kafka_publisher_ = std::make_unique(
+    kafka_publisher_ = std::make_unique<KafkaPublisher>(
         kafka_brokers, opts_->get_kafka_blocks_topic());
   }
 
@@ -3387,7 +3390,7 @@ void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref
   }
 }
 
-void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref state) {
+void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
     kafka_publisher_->publish_block(handle, state);
   }

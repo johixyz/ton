@@ -126,8 +126,9 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
 
   // Basic state info
   if (state.not_null()) {
+    // Create a new object with nested state info
     auto state_obj = jb.enter_object();
-    json("state_info", td::JsonValue::Type::Object);
+    json("state_info", td::JsonRaw("{}"));
 
     // Use integers (1/0) instead of booleans
     if (state->get_shard().is_masterchain()) {
@@ -139,7 +140,7 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
     state_obj("global_id", static_cast<td::int32>(state->get_global_id()));
     state_obj("seqno", static_cast<td::int32>(state->get_seqno()));
 
-    state_obj("logical_time", state->get_logical_time());
+    state_obj("logical_time", static_cast<td::int64>(state->get_logical_time()));
 
     // Add masterchain block reference if this is a shardchain block
     if (!state->get_shard().is_masterchain()) {
