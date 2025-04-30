@@ -1,7 +1,8 @@
 #pragma once
 
 #include "td/actor/actor.h"
-#include "td/net/HttpServer.h"
+#include "http/http-server.h"
+#include "http/http.h"
 #include "block-reception-tracker.hpp"
 #include "td/utils/JsonBuilder.h"
 #include <memory>
@@ -15,35 +16,129 @@ class ListenerHttpServer : public td::actor::Actor {
       : port_(port), tracker_(std::move(tracker)) {
   }
 
-  void handle_request(td::HttpQuery query, td::Promise<td::HttpServerResponse> promise) {
-    td::HttpServerResponse response;
-    response.http_version_ = query.http_version_;
-    response.connection_keep_alive_ = query.connection_keep_alive_;
-    response.content_type_ = "application/json";
+  void start_up() override {
+    // Создаем callback для HTTP сервера
+    class HttpCallback : public ton::http::HttpServer::Callback {
+     public:
+      HttpCallback(td::actor::ActorId<ListenerHttpServer> server_id)
+          : server_id_(server_id) {
+      }
 
-    if (query.path_ == "/stats") {
-      response.code_ = 200;
-      response.message_ = "OK";
-      response.content_ = get_stats_json();
-    } else if (query.path_ == "/recent_blocks") {
-      response.code_ = 200;
-      response.message_ = "OK";
-      response.content_ = get_recent_blocks_json(100);
-    } else if (query.path_.substr(0, 12) == "/block_stats/") {
-      auto block_id_str = query.path_.substr(12);
-      response.code_ = 200;
-      response.message_ = "OK";
-      response.content_ = get_block_stats_json(block_id_str);
-    } else {
-      response.code_ = 404;
-      response.message_ = "Not Found";
-      response.content_ = "404 Not Found";
+      void receive_request(
+          std::unique_ptr<ton::http::HttpRequest> request,
+          std::shared_ptr<ton::http::HttpPayload> payload,
+          td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                std::shared_ptr<ton::http::HttpPayload>>> promise) override {
+
+        // Отправляем запрос на обработку
+        td::actor::send_closure(server_id_, &ListenerHttpServer::handle_request, std::move(request),
+                                std::move(payload), std::move(promise));
+      }
+
+     private:
+      td::actor::ActorId<ListenerHttpServer> server_id_;
+    };
+
+    auto callback = std::make_shared<HttpCallback>(actor_id(this));
+    server_ = ton::http::HttpServer::create(port_, std::move(callback));
+
+    LOG(INFO) << "HTTP server started on port " << port_;
+  }
+
+  void handle_request(std::unique_ptr<ton::http::HttpRequest> request,
+                      std::shared_ptr<ton::http::HttpPayload> payload,
+                      td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                            std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Анализируем URL
+    std::string url = request->url();
+
+    // Извлекаем путь из URL
+    std::string path = url;
+    size_t pos = url.find('?');
+    if (pos != std::string::npos) {
+      path = url.substr(0, pos);
     }
 
-    promise.set_value(std::move(response));
+    if (path == "/stats") {
+      process_stats_request(std::move(promise));
+    } else if (path == "/recent_blocks") {
+      process_recent_blocks_request(std::move(promise));
+    } else if (path.substr(0, 12) == "/block_stats/") {
+      auto block_id_str = path.substr(12);
+      process_block_stats_request(block_id_str, std::move(promise));
+    } else {
+      auto response = ton::http::HttpResponse::create("HTTP/1.1", 404, "Not Found", false, request->keep_alive()).move_as_ok();
+      response->add_header(ton::http::HttpHeader{"Content-Type", "text/plain"});
+      response->add_header(ton::http::HttpHeader{"Content-Length", "9"});
+      response->complete_parse_header();
+
+      auto payload = response->create_empty_payload().move_as_ok();
+      payload->add_chunk(td::BufferSlice("Not Found"));
+      payload->complete_parse();
+
+      promise.set_value(std::make_pair(std::move(response), std::move(payload)));
+    }
   }
 
  private:
+  void process_stats_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                                   std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Создаем JSON
+    std::string json_content = get_stats_json();
+
+    // Создаем ответ
+    auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
+    response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
+    response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->complete_parse_header();
+
+    // Создаем payload
+    auto payload = response->create_empty_payload().move_as_ok();
+    payload->add_chunk(td::BufferSlice(json_content));
+    payload->complete_parse();
+
+    promise.set_value(std::make_pair(std::move(response), std::move(payload)));
+  }
+
+  void process_recent_blocks_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                                           std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Создаем JSON
+    std::string json_content = get_recent_blocks_json(100);
+
+    // Создаем ответ
+    auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
+    response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
+    response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->complete_parse_header();
+
+    // Создаем payload
+    auto payload = response->create_empty_payload().move_as_ok();
+    payload->add_chunk(td::BufferSlice(json_content));
+    payload->complete_parse();
+
+    promise.set_value(std::make_pair(std::move(response), std::move(payload)));
+  }
+
+  void process_block_stats_request(const std::string& block_id_str,
+                                   td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                                         std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Создаем JSON
+    std::string json_content = get_block_stats_json(block_id_str);
+
+    // Создаем ответ
+    auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
+    response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
+    response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->complete_parse_header();
+
+    // Создаем payload
+    auto payload = response->create_empty_payload().move_as_ok();
+    payload->add_chunk(td::BufferSlice(json_content));
+    payload->complete_parse();
+
+    promise.set_value(std::make_pair(std::move(response), std::move(payload)));
+  }
+
   std::string get_stats_json() {
     td::JsonBuilder jb;
     auto json_obj = jb.enter_object();
@@ -113,18 +208,9 @@ class ListenerHttpServer : public td::actor::Actor {
     return jb.string_builder().as_cslice().str();
   }
 
-  void start_up() override {
-    server_ = td::actor::create_actor<td::HttpServer>("http-server", port_,
-                                                      [SelfId = actor_id(this)](td::HttpQuery query, td::Promise<td::HttpServerResponse> promise) {
-                                                        td::actor::send_closure(SelfId, &ListenerHttpServer::handle_request, std::move(query), std::move(promise));
-                                                      }
-    );
-    LOG(INFO) << "HTTP server started on port " << port_;
-  }
-
   td::uint16 port_;
   td::Ref<BlockReceptionTracker> tracker_;
-  td::actor::ActorOwn<td::HttpServer> server_;
+  td::actor::ActorOwn<ton::http::HttpServer> server_;
 };
 
 } // namespace listener

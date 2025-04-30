@@ -35,6 +35,7 @@ target_link_libraries(ton-listener-head PUBLIC
         catchain
         ton_crypto
         ton_block
+        http
 )
 
 # Настройка включаемых директорий
