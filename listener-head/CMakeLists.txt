@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
-# Добавление исходников Listener Head
+# Добавление исходников
 set(LISTENER_HEAD_SOURCE
         listener-head-main.cpp
 )
@@ -8,13 +8,9 @@ set(LISTENER_HEAD_SOURCE
 # Добавление заголовочных файлов
 set(LISTENER_HEAD_HEADERS
         block-reception-tracker.hpp
-        listener-head-options.hpp
-        listener-network-config.hpp
-        listener-connection-manager.hpp
         listener-head-manager.hpp
+        listener-connection-manager.hpp
         listener-http-server.hpp
-        adnl-listener-channel.hpp
-        adnl-extension.hpp
         listener-head-config.hpp
 )
 
@@ -31,10 +27,6 @@ target_link_libraries(ton-listener-head PUBLIC
         dht
         tl_api
         overlay
-        validator
-        catchain
-        ton_crypto
-        ton_block
         http
 )
 
@@ -46,3 +38,6 @@ target_include_directories(ton-listener-head PUBLIC
 
 # Установка компилятора для C++14
 set_property(TARGET ton-listener-head PROPERTY CXX_STANDARD 14)
+
+# Установка исполняемого файла
+install(TARGETS ton-listener-head RUNTIME DESTINATION bin)

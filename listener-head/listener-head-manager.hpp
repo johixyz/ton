@@ -1,84 +1,80 @@
 #pragma once
 
-#include "common/refcnt.hpp"
-#include "validator/manager.h"
+#include "td/actor/actor.h"
+#include "adnl/adnl.h"
+#include "overlay/overlays.h"
+#include "dht/dht.h"
+#include "ton/ton-types.h"
 #include "block-reception-tracker.hpp"
-
-#include <atomic>
+#include "td/utils/overloaded.h"
 
 namespace ton {
 namespace listener {
 
-class ListenerHeadManager : public validator::ValidatorManagerImpl {
+// Основной класс управления прослушивателем блоков TON
+class ListenerHeadManager : public td::actor::Actor {
  public:
-  void install_callback(std::unique_ptr<validator::ValidatorManagerInterface::Callback> new_callback, td::Promise<td::Unit> promise) override {
-    callback_ = std::move(new_callback);
-    promise.set_value(td::Unit());
+  ListenerHeadManager(std::string db_root,
+                      td::actor::ActorId<keyring::Keyring> keyring,
+                      td::actor::ActorId<adnl::Adnl> adnl,
+                      td::actor::ActorId<overlay::Overlays> overlays,
+                      td::actor::ActorId<dht::Dht> dht)
+      : db_root_(db_root),
+      keyring_(keyring),
+      adnl_(adnl),
+      overlays_(overlays),
+      dht_(dht) {
+    block_tracker_ = std::make_shared<BlockReceptionTracker>();
   }
 
-  // Базовые функции управления ключами
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    promise.set_value(td::Unit());
-  }
-
-  void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    promise.set_value(td::Unit());
-  }
-
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    promise.set_value(td::Unit());
-  }
-
-  void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    promise.set_value(td::Unit());
-  }
-
-  // Основная функция обработки блоков
-  void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
+  // Обработка нового блока из сети
+  void process_block(BlockIdExt block_id, td::BufferSlice data, std::string source_id = "") {
     auto reception_time = td::Timestamp::now();
 
-    // Регистрируем полученный блок - используем правильные поля структуры BlockBroadcast
-    track_block_received(broadcast.block_id, adnl::AdnlNodeIdShort(), reception_time,
-                         broadcast.data.size(), td::IPAddress());
+    // Логика обработки нового блока
+    LOG(INFO) << "Received new block: " << block_id.to_str() << " from " << source_id;
 
-    // Логируем каждые 100 блоков
+    // Записываем статистику приема
+    track_block_received(block_id, source_id, reception_time, data.size());
+
+    // Логируем каждые N блоков для наблюдения
     if (++blocks_received_ % 100 == 0) {
-      LOG(INFO) << "ListenerHead received " << blocks_received_ << " block broadcasts";
+      LOG(INFO) << "ListenerHeadManager received " << blocks_received_
+                << " blocks, total " << block_tracker_->get_blocks_received_count();
     }
 
-    promise.set_value(td::Unit());
+    // Здесь можно добавить дополнительную логику анализа блока
+    // например: анализ транзакций, сохранение в БД и т.д.
   }
 
-  // Обработка блок-кандидатов
-  void new_block_candidate(BlockIdExt block_id, td::BufferSlice data) override {
+  // Обработка блока-кандидата
+  void process_block_candidate(BlockIdExt block_id, td::BufferSlice data, std::string source_id = "") {
     auto reception_time = td::Timestamp::now();
 
-    adnl::AdnlNodeIdShort source_id;
-    td::IPAddress source_addr;
+    LOG(INFO) << "Received block candidate: " << block_id.to_str();
 
-    track_block_received(block_id, source_id, reception_time, data.size(), source_addr);
+    track_block_received(block_id, source_id, reception_time, data.size(), "", 0.0);
 
     if (++block_candidates_received_ % 100 == 0) {
-      LOG(INFO) << "ListenerHead received " << block_candidates_received_ << " block candidates";
+      LOG(INFO) << "ListenerHeadManager received " << block_candidates_received_ << " block candidates";
     }
   }
 
-  // Обработка шардовых блоков
-  void new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
+  // Обработка шардового блока
+  void process_shard_block(BlockIdExt block_id, td::BufferSlice data, std::string source_id = "") {
     auto reception_time = td::Timestamp::now();
 
-    adnl::AdnlNodeIdShort source_id;
-    td::IPAddress source_addr;
+    LOG(INFO) << "Received shard block: " << block_id.to_str();
 
-    track_block_received(block_id, source_id, reception_time, data.size(), source_addr);
+    track_block_received(block_id, source_id, reception_time, data.size(), "", 0.0);
 
     if (++shard_blocks_received_ % 100 == 0) {
-      LOG(INFO) << "ListenerHead received " << shard_blocks_received_ << " shard blocks";
+      LOG(INFO) << "ListenerHeadManager received " << shard_blocks_received_ << " shard blocks";
     }
   }
 
-  // Методы для получения статистики
-  td::Ref<BlockReceptionTracker> get_block_tracker() const {
+  // Методы доступа к статистике
+  std::shared_ptr<BlockReceptionTracker> get_block_tracker() const {
     return block_tracker_;
   }
 
@@ -86,8 +82,8 @@ class ListenerHeadManager : public validator::ValidatorManagerImpl {
     return block_tracker_->get_recent_blocks_stats(limit);
   }
 
-  BlockReceptionStats get_block_stats(BlockIdExt block_id) const {
-    return block_tracker_->get_block_stats(block_id);
+  BlockReceptionStats get_block_stats(const std::string& block_id_str) const {
+    return block_tracker_->get_block_stats(block_id_str);
   }
 
   double get_average_processing_time() const {
@@ -98,99 +94,141 @@ class ListenerHeadManager : public validator::ValidatorManagerImpl {
     return block_tracker_->get_blocks_received_count();
   }
 
+  size_t get_total_bytes() const {
+    return block_tracker_->get_total_bytes_received();
+  }
+
+  std::string get_full_stats_json() const {
+    return block_tracker_->get_full_stats_json();
+  }
+
+  // Методы жизненного цикла актора
   void start_up() override {
-    LOG(INFO) << "ListenerHeadManager started";
-    started_ = true;
+    LOG(INFO) << "ListenerHeadManager starting up...";
+
+    // Устанавливаем периодический таймер для действий
+    alarm_timestamp() = td::Timestamp::in(1.0);
+
+    start_listening();
+
+    LOG(INFO) << "ListenerHeadManager started successfully";
   }
 
-  // Конструктор
-  ListenerHeadManager(td::Ref<validator::ValidatorManagerOptions> opts, std::string db_root,
-                      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays)
-      : validator::ValidatorManagerImpl(std::move(opts), db_root, keyring, adnl, rldp, overlays) {
-    block_tracker_ = td::Ref<BlockReceptionTracker>(true);
+  void alarm() override {
+    // Периодические действия
+    check_connection_status();
+
+    // Переустанавливаем таймер
+    alarm_timestamp() = td::Timestamp::in(60.0); // каждую минуту
   }
 
-  // Реализации остальных виртуальных методов ValidatorManager
-  void validate_block(ReceivedBlock block, td::Promise<validator::BlockHandle> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  void tear_down() override {
+    LOG(INFO) << "ListenerHeadManager shutting down...";
+    stop_listening();
   }
 
-  void validate_block_proof(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  // Добавление оверлея для прослушивания
+  void add_overlay_to_listen(overlay::OverlayIdShort overlay_id) {
+    LOG(INFO) << "Adding overlay to listen: " << overlay_id.to_hex();
+
+    // Проверяем, не добавлен ли уже этот оверлей
+    if (monitored_overlays_.find(overlay_id) != monitored_overlays_.end()) {
+      LOG(INFO) << "Overlay already being monitored";
+      return;
+    }
+
+    monitored_overlays_.insert(overlay_id);
+    start_listening_overlay(overlay_id);
   }
 
-  void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
+  // Метод для ручного подключения к узлу
+  void connect_to_node(adnl::AdnlNodeIdShort node_id, td::IPAddress addr, bool is_validator = false) {
+    LOG(INFO) << "Manually connecting to node: " << node_id.to_hex() << " at " << addr.get_ip_str();
 
-  void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
-                                td::Promise<td::Unit> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id, td::BufferSlice proof,
-                                    td::Promise<td::Unit> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void get_next_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void get_next_key_blocks(BlockIdExt block_id, td::Promise<std::vector<BlockIdExt>> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void sync_complete(td::Promise<td::Unit> promise) override {
-    promise.set_value(td::Unit());
-  }
-
-  void get_top_masterchain_state(td::Promise<td::Ref<validator::MasterchainState>> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
-  }
-
-  void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override {
-    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+    // Логика подключения к узлу
+    td::uint32 priority = is_validator ? 1 : 0; // приоритет для валидаторов
+    try_connect_to_peer(node_id, addr, priority);
   }
 
  private:
-  void track_block_received(BlockIdExt block_id, adnl::AdnlNodeIdShort source_node,
+  // Методы для прослушивания и подключения
+  void start_listening() {
+    LOG(INFO) << "Starting to listen for blocks...";
+
+    // Здесь должна быть логика подписки на получение блоков
+    // через оверлеи, ADNL и другие механизмы TON
+
+    // Временный код для тестирования - сгенерируем тестовый блок
+    if (monitored_overlays_.empty()) {
+      LOG(WARNING) << "No overlays to monitor yet, listening functionality limited";
+    }
+  }
+
+  void start_listening_overlay(overlay::OverlayIdShort overlay_id) {
+    LOG(INFO) << "Starting to listen for overlay: " << overlay_id.to_hex();
+
+    // Подписка на получение сообщений от оверлея
+    // Логика будет зависеть от доступных методов API TON
+
+    // Пример (упрощенный, реальный код может отличаться):
+    // td::actor::send_closure(overlays_, &overlay::Overlays::add_overlay, overlay_id, ...)
+  }
+
+  void stop_listening() {
+    // Отписываемся от всех оверлеев
+    for (const auto& overlay_id : monitored_overlays_) {
+      LOG(INFO) << "Stopping listening for overlay: " << overlay_id.to_hex();
+      // td::actor::send_closure(overlays_, &overlay::Overlays::remove_overlay, overlay_id, ...)
+    }
+  }
+
+  void check_connection_status() {
+    // Проверка статуса соединений и восстановление при необходимости
+    LOG(DEBUG) << "Checking connection status...";
+
+    // Можно проверить число полученных блоков за последнее время
+    // и предпринять меры если блоки не поступают
+  }
+
+  void try_connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, td::uint32 priority = 0) {
+    // Создаем список адресов для ADNL
+    adnl::AdnlAddressList addr_list;
+    addr_list.add_udp_address(addr);
+
+    // Добавляем пир в ADNL
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, addr_list, priority);
+
+    // Добавляем этот пир ко всем мониторимым оверлеям
+    for (const auto& overlay_id : monitored_overlays_) {
+      // Здесь используем доступные методы API оверлеев
+    }
+  }
+
+  void track_block_received(BlockIdExt block_id, std::string source_id,
                             td::Timestamp received_at, size_t message_size,
-                            td::IPAddress source_addr = td::IPAddress()) {
-    auto processing_time = td::Timestamp::now().at() - received_at.at();
-    block_tracker_->track_block_received(block_id, source_node, received_at, message_size,
+                            std::string source_addr = "", double processing_time = 0.0) {
+    block_tracker_->track_block_received(block_id, source_id, received_at, message_size,
                                          source_addr, processing_time);
   }
 
-  std::unique_ptr<validator::ValidatorManagerInterface::Callback> callback_;
-  std::atomic<bool> started_{false};
+  // Базовые поля
+  std::string db_root_;
+  td::actor::ActorId<keyring::Keyring> keyring_;
+  td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<overlay::Overlays> overlays_;
+  td::actor::ActorId<dht::Dht> dht_;
+
+  // Статистика
   std::atomic<size_t> blocks_received_{0};
   std::atomic<size_t> block_candidates_received_{0};
   std::atomic<size_t> shard_blocks_received_{0};
 
-  td::Ref<BlockReceptionTracker> block_tracker_;
+  // Трекер блоков
+  std::shared_ptr<BlockReceptionTracker> block_tracker_;
+
+  // Мониторимые оверлеи
+  std::set<overlay::OverlayIdShort> monitored_overlays_;
 };
 
-// Фабрика для создания ListenerHeadManager
-class ListenerHeadManagerFactory {
- public:
-  static td::actor::ActorOwn<validator::ValidatorManager> create(
-      td::Ref<validator::ValidatorManagerOptions> opts, std::string db_root,
-      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays) {
-    return td::actor::create_actor<ListenerHeadManager>(
-        "listener-head", std::move(opts), db_root, keyring, adnl, rldp, overlays);
-  }
-};
-
-}  // namespace listener
-}  // namespace ton
+} // namespace listener
+} // namespace ton

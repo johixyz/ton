@@ -4,19 +4,21 @@
 #include "http/http-server.h"
 #include "http/http.h"
 #include "block-reception-tracker.hpp"
-#include "td/utils/JsonBuilder.h"
 #include <memory>
 
 namespace ton {
 namespace listener {
 
+// HTTP сервер для предоставления API мониторинга блоков
 class ListenerHttpServer : public td::actor::Actor {
  public:
-  ListenerHttpServer(td::uint16 port, td::Ref<BlockReceptionTracker> tracker)
+  ListenerHttpServer(td::uint16 port, std::shared_ptr<BlockReceptionTracker> tracker)
       : port_(port), tracker_(std::move(tracker)) {
   }
 
   void start_up() override {
+    LOG(INFO) << "Starting HTTP server on port " << port_;
+
     // Создаем callback для HTTP сервера
     class HttpCallback : public ton::http::HttpServer::Callback {
      public:
@@ -42,7 +44,7 @@ class ListenerHttpServer : public td::actor::Actor {
     auto callback = std::make_shared<HttpCallback>(actor_id(this));
     server_ = ton::http::HttpServer::create(port_, std::move(callback));
 
-    LOG(INFO) << "HTTP server started on port " << port_;
+    LOG(INFO) << "HTTP server started successfully on port " << port_;
   }
 
   void handle_request(std::unique_ptr<ton::http::HttpRequest> request,
@@ -59,14 +61,23 @@ class ListenerHttpServer : public td::actor::Actor {
       path = url.substr(0, pos);
     }
 
-    if (path == "/stats") {
+    LOG(DEBUG) << "Handling HTTP request: " << path;
+
+    // Обрабатываем различные эндпоинты API
+    if (path == "/api/stats") {
       process_stats_request(std::move(promise));
-    } else if (path == "/recent_blocks") {
+    } else if (path == "/api/recent_blocks") {
       process_recent_blocks_request(std::move(promise));
-    } else if (path.substr(0, 12) == "/block_stats/") {
-      auto block_id_str = path.substr(12);
+    } else if (path.substr(0, 16) == "/api/block_stats/") {
+      auto block_id_str = path.substr(16);
       process_block_stats_request(block_id_str, std::move(promise));
+    } else if (path == "/api/workchain_stats") {
+      process_workchain_stats_request(std::move(promise));
+    } else if (path == "/") {
+      // Корневой эндпоинт - выдаем HTML страницу дашборда
+      process_dashboard_request(std::move(promise));
     } else {
+      // Обработка неизвестного пути
       auto response = ton::http::HttpResponse::create("HTTP/1.1", 404, "Not Found", false, request->keep_alive()).move_as_ok();
       response->add_header(ton::http::HttpHeader{"Content-Type", "text/plain"});
       response->add_header(ton::http::HttpHeader{"Content-Length", "9"});
@@ -81,15 +92,17 @@ class ListenerHttpServer : public td::actor::Actor {
   }
 
  private:
+  // Обработка запроса общей статистики
   void process_stats_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
                                                    std::shared_ptr<ton::http::HttpPayload>>> promise) {
-    // Создаем JSON
-    std::string json_content = get_stats_json();
+    // Создаем JSON с общей статистикой
+    std::string json_content = tracker_->get_full_stats_json();
 
-    // Создаем ответ
+    // Создаем HTTP ответ
     auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
     response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
     response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->add_header(ton::http::HttpHeader{"Access-Control-Allow-Origin", "*"});
     response->complete_parse_header();
 
     // Создаем payload
@@ -100,15 +113,32 @@ class ListenerHttpServer : public td::actor::Actor {
     promise.set_value(std::make_pair(std::move(response), std::move(payload)));
   }
 
+  // Обработка запроса последних блоков
   void process_recent_blocks_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
                                                            std::shared_ptr<ton::http::HttpPayload>>> promise) {
-    // Создаем JSON
-    std::string json_content = get_recent_blocks_json(100);
+    // Получаем статистику по последним блокам
+    auto stats = tracker_->get_recent_blocks_stats(100);
 
-    // Создаем ответ
+    // Формируем JSON ответ вручную
+    std::string json_content = "{\n  \"blocks\": [\n";
+
+    for (size_t i = 0; i < stats.size(); ++i) {
+      json_content += "    " + stats[i].to_json();
+      if (i < stats.size() - 1) {
+        json_content += ",";
+      }
+      json_content += "\n";
+    }
+
+    json_content += "  ],\n";
+    json_content += "  \"total\": " + std::to_string(stats.size()) + "\n";
+    json_content += "}\n";
+
+    // Создаем HTTP ответ
     auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
     response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
     response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->add_header(ton::http::HttpHeader{"Access-Control-Allow-Origin", "*"});
     response->complete_parse_header();
 
     // Создаем payload
@@ -119,16 +149,21 @@ class ListenerHttpServer : public td::actor::Actor {
     promise.set_value(std::make_pair(std::move(response), std::move(payload)));
   }
 
+  // Обработка запроса статистики по конкретному блоку
   void process_block_stats_request(const std::string& block_id_str,
                                    td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
                                                          std::shared_ptr<ton::http::HttpPayload>>> promise) {
-    // Создаем JSON
-    std::string json_content = get_block_stats_json(block_id_str);
+    // Получаем статистику по конкретному блоку
+    auto stats = tracker_->get_block_stats(block_id_str);
 
-    // Создаем ответ
+    // Формируем JSON ответ
+    std::string json_content = stats.to_json();
+
+    // Создаем HTTP ответ
     auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
     response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
     response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->add_header(ton::http::HttpHeader{"Access-Control-Allow-Origin", "*"});
     response->complete_parse_header();
 
     // Создаем payload
@@ -139,81 +174,201 @@ class ListenerHttpServer : public td::actor::Actor {
     promise.set_value(std::make_pair(std::move(response), std::move(payload)));
   }
 
-  std::string get_stats_json() {
-    td::JsonBuilder jb;
-    auto json_obj = jb.enter_object();
+  // Обработка запроса статистики по воркчейнам
+  void process_workchain_stats_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                                             std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Получаем статистику по воркчейнам
+    auto workchain_stats = tracker_->get_workchain_stats();
 
-    json_obj("blocks_received", static_cast<td::int64>(tracker_->get_blocks_received_count()));
-    json_obj("avg_processing_time", tracker_->get_average_processing_time());
+    // Формируем JSON ответ
+    std::string json_content = "{\n  \"workchain_stats\": {\n";
 
-    auto stats = tracker_->get_recent_blocks_stats(10);
-    td::JsonBuilder blocks_jb;
-    auto blocks_arr = blocks_jb.enter_array();
-
-    for (const auto& stat : stats) {
-      auto block_obj = blocks_arr.enter_object();
-      block_obj("block_id", stat.block_id.to_str());
-      block_obj("received_at", stat.received_at.at());
-      block_obj("size", static_cast<td::int64>(stat.message_size));
-      block_obj("processing_time", stat.processing_time);
-      block_obj.leave();
+    bool first = true;
+    for (const auto& pair : workchain_stats) {
+      if (!first) {
+        json_content += ",\n";
+      }
+      json_content += "    \"" + std::to_string(pair.first) + "\": " + std::to_string(pair.second);
+      first = false;
     }
 
-    blocks_arr.leave();
-    json_obj("recent_blocks", blocks_jb.extract_string_unsafe());
-    json_obj.leave();
+    json_content += "\n  }\n}\n";
 
-    return jb.string_builder().as_cslice().str();
+    // Создаем HTTP ответ
+    auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
+    response->add_header(ton::http::HttpHeader{"Content-Type", "application/json"});
+    response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(json_content.size())});
+    response->add_header(ton::http::HttpHeader{"Access-Control-Allow-Origin", "*"});
+    response->complete_parse_header();
+
+    // Создаем payload
+    auto payload = response->create_empty_payload().move_as_ok();
+    payload->add_chunk(td::BufferSlice(json_content));
+    payload->complete_parse();
+
+    promise.set_value(std::make_pair(std::move(response), std::move(payload)));
   }
 
-  std::string get_recent_blocks_json(int limit) {
-    td::JsonBuilder jb;
-    auto json_obj = jb.enter_object();
+  // Обработка запроса дашборда
+  void process_dashboard_request(td::Promise<std::pair<std::unique_ptr<ton::http::HttpResponse>,
+                                                       std::shared_ptr<ton::http::HttpPayload>>> promise) {
+    // Создаем простую HTML страницу с дашбордом
+    std::string html_content = R"(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TON Listener Head Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background-color: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        pre { background-color: #f8f8f8; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        tr:hover { background-color: #f5f5f5; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .stat-card { background-color: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .stat-value { font-size: 24px; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TON Listener Head Dashboard</h1>
 
-    auto stats = tracker_->get_recent_blocks_stats(limit);
-    td::JsonBuilder blocks_jb;
-    auto blocks_arr = blocks_jb.enter_array();
+        <div class="card">
+            <h2>Block Reception Statistics</h2>
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div>Total Blocks Received</div>
+                    <div class="stat-value" id="blocks-received">Loading...</div>
+                </div>
+                <div class="stat-card">
+                    <div>Total Data Volume</div>
+                    <div class="stat-value" id="total-bytes">Loading...</div>
+                </div>
+                <div class="stat-card">
+                    <div>Average Processing Time</div>
+                    <div class="stat-value" id="avg-processing-time">Loading...</div>
+                </div>
+            </div>
+        </div>
 
-    for (const auto& stat : stats) {
-      auto block_obj = blocks_arr.enter_object();
-      block_obj("block_id", stat.block_id.to_str());
-      block_obj("received_at", stat.received_at.at());
-      block_obj("source_node", stat.source_node.serialize());
-      block_obj("size", static_cast<td::int64>(stat.message_size));
-      block_obj("processing_time", stat.processing_time);
-      block_obj.leave();
-    }
+        <div class="card">
+            <h2>Recent Blocks</h2>
+            <table id="recent-blocks-table">
+                <thead>
+                    <tr>
+                        <th>Block ID</th>
+                        <th>Received At</th>
+                        <th>Size</th>
+                        <th>Processing Time</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-blocks-body">
+                    <tr>
+                        <td colspan="4">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
 
-    blocks_arr.leave();
-    json_obj("blocks", blocks_jb.extract_string_unsafe());
-    json_obj.leave();
+        <div class="card">
+            <h2>Workchain Statistics</h2>
+            <div id="workchain-stats">Loading...</div>
+        </div>
+    </div>
 
-    return jb.string_builder().as_cslice().str();
-  }
+    <script>
+        // Function to update dashboard data
+        function updateDashboard() {
+            // Fetch general statistics
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('blocks-received').textContent = data.blocks_received.toLocaleString();
+                    document.getElementById('total-bytes').textContent = formatBytes(data.total_bytes_received);
+                    document.getElementById('avg-processing-time').textContent = data.avg_processing_time.toFixed(6) + ' sec';
 
-  std::string get_block_stats_json(const std::string& block_id_str) {
-    td::JsonBuilder jb;
-    auto json_obj = jb.enter_object();
+                    // Update workchain stats
+                    let wcStatsHtml = '<table>';
+                    wcStatsHtml += '<tr><th>Workchain</th><th>Blocks Count</th></tr>';
 
-    // В реальной реализации добавьте функцию для парсинга BlockIdExt из строки
-    BlockIdExt block_id;
+                    for (const [workchain, count] of Object.entries(data.workchain_stats)) {
+                        wcStatsHtml += `<tr><td>${workchain}</td><td>${count.toLocaleString()}</td></tr>`;
+                    }
 
-    auto stats = tracker_->get_block_stats(block_id);
+                    wcStatsHtml += '</table>';
+                    document.getElementById('workchain-stats').innerHTML = wcStatsHtml;
+                })
+                .catch(error => console.error('Error fetching stats:', error));
 
-    json_obj("block_id", stats.block_id.to_str());
-    json_obj("received_at", stats.received_at.at());
-    json_obj("source_node", stats.source_node.serialize());
-    json_obj("source_addr", stats.source_addr.get_ip_str().str());
-    json_obj("size", static_cast<td::int64>(stats.message_size));
-    json_obj("processing_time", stats.processing_time);
+            // Fetch recent blocks
+            fetch('/api/recent_blocks')
+                .then(response => response.json())
+                .then(data => {
+                    let tableHtml = '';
 
-    json_obj.leave();
+                    data.blocks.forEach(block => {
+                        const date = new Date(block.received_at * 1000);
+                        tableHtml += `<tr>
+                            <td>${block.block_id}</td>
+                            <td>${date.toLocaleString()}</td>
+                            <td>${formatBytes(block.message_size)}</td>
+                            <td>${block.processing_time.toFixed(6)} sec</td>
+                        </tr>`;
+                    });
 
-    return jb.string_builder().as_cslice().str();
+                    if (tableHtml === '') {
+                        tableHtml = '<tr><td colspan="4">No blocks received yet</td></tr>';
+                    }
+
+                    document.getElementById('recent-blocks-body').innerHTML = tableHtml;
+                })
+                .catch(error => console.error('Error fetching recent blocks:', error));
+        }
+
+        // Helper function to format bytes
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // Update the dashboard when page loads
+        updateDashboard();
+
+        // Update every 10 seconds
+        setInterval(updateDashboard, 10000);
+    </script>
+</body>
+</html>
+    )";
+
+    // Создаем HTTP ответ
+    auto response = ton::http::HttpResponse::create("HTTP/1.1", 200, "OK", false, true).move_as_ok();
+    response->add_header(ton::http::HttpHeader{"Content-Type", "text/html; charset=utf-8"});
+    response->add_header(ton::http::HttpHeader{"Content-Length", std::to_string(html_content.size())});
+    response->complete_parse_header();
+
+    // Создаем payload
+    auto payload = response->create_empty_payload().move_as_ok();
+    payload->add_chunk(td::BufferSlice(html_content));
+    payload->complete_parse();
+
+    promise.set_value(std::make_pair(std::move(response), std::move(payload)));
   }
 
   td::uint16 port_;
-  td::Ref<BlockReceptionTracker> tracker_;
+  std::shared_ptr<BlockReceptionTracker> tracker_;
   td::actor::ActorOwn<ton::http::HttpServer> server_;
 };
 

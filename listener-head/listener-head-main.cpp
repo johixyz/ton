@@ -1,19 +1,19 @@
-#include "auto/tl/ton_api.hpp"
 #include "adnl/adnl.h"
 #include "adnl/adnl-ext-client.h"
 #include "rldp/rldp.h"
 #include "dht/dht.h"
-#include "validator/manager.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionsParser.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/signals.h"
 
-#include "listener-head-options.hpp"
 #include "listener-head-manager.hpp"
 #include "listener-connection-manager.hpp"
 #include "listener-http-server.hpp"
 #include "listener-head-config.hpp"
+
+#include <iostream>
+#include <string>
 
 int main(int argc, char *argv[]) {
   // Настройка логирования
@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
 
   // Парсинг аргументов командной строки
   td::OptionsParser p;
-  p.set_description("TON Listener Head");
+  p.set_description("TON Listener Head - инструмент для мониторинга блоков TON");
 
   p.add_option('c', "config", "конфигурационный файл", [&](td::Slice arg) {
     config_file = arg.str();
@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
 
-  p.add_option('v', "verbosity", "уровень логирования", [&](td::Slice arg) {
+  p.add_option('v', "verbosity", "уровень логирования (0-9)", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
     return td::Status::OK();
@@ -76,11 +76,6 @@ int main(int argc, char *argv[]) {
   }
 
   // Проверка обязательных параметров
-  if (config_file.empty()) {
-    std::cerr << "ОШИБКА: не указан конфигурационный файл (-c)" << std::endl;
-    return 2;
-  }
-
   if (db_root.empty()) {
     std::cerr << "ОШИБКА: не указана директория базы данных (-D)" << std::endl;
     return 2;
@@ -113,114 +108,49 @@ int main(int argc, char *argv[]) {
   td::actor::Scheduler scheduler({7});
   scheduler.run_in_context([&] {
     // Загрузка конфигурации listener-head
-    ton::listener::ListenerConfig listener_config;
-    {
-      auto conf_data = td::read_file(config_file).move_as_ok();
-      auto json_value = td::json_decode(conf_data.as_slice()).move_as_ok();
-      listener_config = ton::listener::ListenerConfig::from_json(json_value);
-    }
-
-    // Устанавливаем HTTP порт из конфигурации
-    http_port = listener_config.http_port;
-
-    // Загрузка глобальной конфигурации
-    auto conf_data = td::read_file(global_config).move_as_ok();
-    auto config_json = td::json_decode(conf_data.as_slice()).move_as_ok();
-
-    // Получение базового блока из глобальной конфигурации
-    auto zero_state_id = ton::BlockIdExt{};
-
-    // Пытаемся извлечь информацию о zero_state из конфигурации
-    if (config_json.type() == td::JsonValue::Type::Object) {
-      auto &obj = config_json.get_object();
-      auto zero_state = td::get_json_object_field(obj, "zero_state", td::JsonValue::Type::Object, td::JsonValue());
-
-      if (zero_state.type() == td::JsonValue::Type::Object) {
-        auto &zs_obj = zero_state.get_object();
-
-        auto workchain = td::get_json_object_int_field(zs_obj, "workchain", ton::workchainIdNotYet);
-        auto shard = td::get_json_object_long_field(zs_obj, "shard", 0);
-        auto seqno = td::get_json_object_int_field(zs_obj, "seqno", 0);
-
-        auto root_hash_str = td::get_json_object_string_field(zs_obj, "root_hash", "");
-        auto file_hash_str = td::get_json_object_string_field(zs_obj, "file_hash", "");
-
-        ton::RootHash root_hash;
-        ton::FileHash file_hash;
-
-        if (!root_hash_str.empty() && !file_hash_str.empty()) {
-          if (root_hash.from_hex(root_hash_str).is_ok() && file_hash.from_hex(file_hash_str).is_ok()) {
-            zero_state_id = ton::BlockIdExt{ton::BlockId{workchain, shard, seqno}, root_hash, file_hash};
-            LOG(INFO) << "Обнаружен zero_state: " << zero_state_id.to_str();
-          }
-        }
+    ton::listener::ListenerHeadConfig config;
+    if (!config_file.empty()) {
+      try {
+        LOG(INFO) << "Загрузка конфигурации из " << config_file;
+        config = ton::listener::ListenerHeadConfig::load_from_file(config_file);
+        http_port = config.http_port;
+        SET_VERBOSITY_LEVEL(VERBOSITY_NAME(FATAL) + config.log_level);
+        LOG(INFO) << "Конфигурация загружена: " << config.to_string();
+      } catch (const std::exception& e) {
+        LOG(ERROR) << "Ошибка при загрузке конфигурации: " << e.what();
       }
     }
 
-    if (zero_state_id.is_valid()) {
-      LOG(ERROR) << "Не удалось инициализировать zero_state из конфигурации";
-      return;
-    }
+    LOG(INFO) << "Инициализация компонентов TON...";
 
-    // Инициализация keyring
+    // Создаем базовые компоненты TON
     auto keyring = ton::keyring::Keyring::create(db_root + "/keyring");
-
-    // Инициализация ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
-
-    // Инициализация DHT
-    auto dht = ton::dht::Dht::create_global_dht(db_root + "/dht", keyring.get(), adnl.get(), config_json);
-
-    // Инициализация RLDP
+    auto dht = ton::dht::Dht::create(db_root + "/dht", nullptr, keyring.get(), adnl.get());
     auto rldp = ton::rldp::Rldp::create(adnl.get());
-
-    // Инициализация оверлеев
     auto overlays = ton::overlay::Overlays::create(db_root + "/overlays", keyring.get(), adnl.get(), dht.get());
 
-    // Создание опций для Listener Head
-    auto opts = ton::validator::ListenerHeadOptions::create(
-        zero_state_id,
-        zero_state_id // В Listener Head это значение не важно
+    LOG(INFO) << "Создание компонентов ListenerHead...";
+
+    // Создаем компоненты ListenerHead
+    auto listener_manager = td::actor::create_actor<ton::listener::ListenerHeadManager>(
+        "listener-head", db_root, keyring.get(), adnl.get(), overlays.get(), dht.get()
     );
 
-    // Создание менеджера Listener Head
-    auto validator_manager = ton::listener::ListenerHeadManagerFactory::create(
-        opts, db_root + "/listenerstate", keyring.get(), adnl.get(), rldp.get(), overlays.get()
-    );
-
-    // Получаем доступ к трекеру блоков
-    auto listener_manager =
-        td::actor::create_actor<ton::listener::ListenerHeadManager>(
-            "listener-head", std::move(opts), db_root + "/listenerstate", keyring.get(), adnl.get(), rldp.get(), overlays.get()
-        );
-
-    // Создание HTTP сервера
-    auto http_server = td::actor::create_actor<ton::listener::ListenerHttpServer>(
-        "http-server", http_port,
-        td::actor::create_actor<ton::listener::ListenerHeadManager>(
-            "listener-head", std::move(opts), db_root + "/listenerstate", keyring.get(), adnl.get(), rldp.get(), overlays.get()
-                )->get_block_tracker()
-    );
-
-    // Создание менеджера соединений
-    auto connection_manager = td::actor::create_actor<ton::listener::ConnectionManager>(
+    auto connection_manager = td::actor::create_actor<ton::listener::ListenerConnectionManager>(
         "connection-manager", adnl.get(), overlays.get(), dht.get()
     );
 
+    auto http_server = td::actor::create_actor<ton::listener::ListenerHttpServer>(
+        "http-server", http_port, listener_manager.get_actor_unsafe().get_block_tracker()
+    );
+
+    // Устанавливаем максимальное количество соединений из конфигурации
+    td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::set_max_connections,
+                            config.max_connections);
+
     LOG(INFO) << "TON Listener Head успешно запущен на HTTP порту " << http_port;
-
-    // Добавляем мастерчейн оверлей для отслеживания
-    if (zero_state_id.is_valid() && zero_state_id.id.workchain == ton::masterchainId) {
-      auto overlay_id = ton::overlay::OverlayIdShort{zero_state_id.root_hash};
-      LOG(INFO) << "Добавляем мастерчейн оверлей: " << overlay_id.serialize();
-      td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::add_overlay, overlay_id);
-    }
-
-    // Устанавливаем максимальное количество соединений
-    td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::set_max_connections,
-                            listener_config.max_connections);
-
-    LOG(INFO) << "Инициализация сети завершена";
+    LOG(INFO) << "Веб-интерфейс доступен по адресу http://localhost:" << http_port;
   });
 
   // Запуск планировщика
