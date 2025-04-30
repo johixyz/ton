@@ -3,9 +3,10 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
-#include <json/json.h>
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/logging.h"
+#include "td/utils/Status.h"
+#include "td/utils/format.h"
 
 namespace ton {
 namespace listener {
@@ -29,55 +30,100 @@ struct ListenerHeadConfig {
   static ListenerHeadConfig load_from_json(const std::string& json_data) {
     ListenerHeadConfig config;
 
-    try {
-      auto parser = td::json_decode(json_data);
+    auto json_parse_result = td::json_decode(json_data);
+    if (json_parse_result.is_error()) {
+      LOG(ERROR) << "Error parsing JSON config: " << json_parse_result.error().message();
+      return config;
+    }
 
-      if (parser.has_key("http_port")) {
-        config.http_port = static_cast<td::uint16>(parser.get_number("http_port"));
+    auto json_value = json_parse_result.move_as_ok();
+    if (json_value.type() != td::JsonValue::Type::Object) {
+      LOG(ERROR) << "Expected JSON object in config";
+      return config;
+    }
+
+    auto& root = json_value.get_object();
+
+    // Parse http_port
+    if (auto field = td::get_json_object_field(root, "http_port", td::JsonValue::Type::Number, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.http_port = static_cast<td::uint16>(td::to_integer<int>(value.get_number()));
       }
+    }
 
-      if (parser.has_key("log_level")) {
-        config.log_level = static_cast<int>(parser.get_number("log_level"));
+    // Parse log_level
+    if (auto field = td::get_json_object_field(root, "log_level", td::JsonValue::Type::Number, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.log_level = td::to_integer<int>(value.get_number());
       }
+    }
 
-      if (parser.has_key("max_connections")) {
-        config.max_connections = static_cast<int>(parser.get_number("max_connections"));
+    // Parse max_connections
+    if (auto field = td::get_json_object_field(root, "max_connections", td::JsonValue::Type::Number, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.max_connections = td::to_integer<int>(value.get_number());
       }
+    }
 
-      if (parser.has_key("udp_buffer_size")) {
-        config.udp_buffer_size = static_cast<int>(parser.get_number("udp_buffer_size"));
+    // Parse udp_buffer_size
+    if (auto field = td::get_json_object_field(root, "udp_buffer_size", td::JsonValue::Type::Number, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.udp_buffer_size = td::to_integer<int>(value.get_number());
       }
+    }
 
-      if (parser.has_key("max_blocks_to_store")) {
-        config.max_blocks_to_store = static_cast<int>(parser.get_number("max_blocks_to_store"));
+    // Parse max_blocks_to_store
+    if (auto field = td::get_json_object_field(root, "max_blocks_to_store", td::JsonValue::Type::Number, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.max_blocks_to_store = td::to_integer<int>(value.get_number());
       }
+    }
 
-      if (parser.has_key("save_blocks_to_db")) {
-        config.save_blocks_to_db = parser.get_boolean("save_blocks_to_db");
+    // Parse save_blocks_to_db
+    if (auto field = td::get_json_object_field(root, "save_blocks_to_db", td::JsonValue::Type::Boolean, false)) {
+      if (field.is_ok()) {
+        auto value = field.move_as_ok();
+        config.save_blocks_to_db = value.get_boolean();
       }
+    }
 
-      // Парсинг static_nodes
-      if (parser.has_key("static_nodes") && parser.has_array("static_nodes")) {
-        auto nodes_array = parser.get_array("static_nodes");
+    // Parse static_nodes
+    if (auto field = td::get_json_object_field(root, "static_nodes", td::JsonValue::Type::Array, false)) {
+      if (field.is_ok()) {
+        auto nodes_array = field.move_as_ok().get_array();
         for (auto& node_elem : nodes_array) {
-          if (node_elem.has_key("address") && node_elem.has_key("key")) {
-            std::string address = node_elem.get_string("address");
-            std::string key = node_elem.get_string("key");
-            config.static_nodes.emplace_back(address, key);
+          if (node_elem.type() == td::JsonValue::Type::Object) {
+            auto& node_obj = node_elem.get_object();
+            auto address_field = td::get_json_object_field(node_obj, "address", td::JsonValue::Type::String, false);
+            auto key_field = td::get_json_object_field(node_obj, "key", td::JsonValue::Type::String, false);
+
+            if (address_field.is_ok() && key_field.is_ok()) {
+              std::string address = address_field.ok().get_string().str();
+              std::string key = key_field.ok().get_string().str();
+              config.static_nodes.emplace_back(address, key);
+            }
           }
         }
       }
+    }
 
-      // Парсинг overlay_ids
-      if (parser.has_key("overlay_ids") && parser.has_array("overlay_ids")) {
-        auto overlay_array = parser.get_array("overlay_ids");
+    return config;
+
+    // Parse overlay_ids
+    if (auto field = td::get_json_object_field(root, "overlay_ids", td::JsonValue::Type::Array, false)) {
+      if (field.is_ok()) {
+        auto overlay_array = field.move_as_ok().get_array();
         for (auto& overlay_elem : overlay_array) {
-          config.overlay_ids.push_back(overlay_elem.get_string());
+          if (overlay_elem.type() == td::JsonValue::Type::String) {
+            config.overlay_ids.push_back(overlay_elem.get_string().str());
+          }
         }
       }
-
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "Error parsing JSON config: " << e.what();
     }
 
     return config;

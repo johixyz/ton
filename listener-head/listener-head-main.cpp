@@ -7,6 +7,10 @@
 #include "td/utils/OptionsParser.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/signals.h"
+#include "td/utils/JsonBuilder.h"
+#include "keys/encryptor.h"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
 #include <unistd.h>
 
 #include "listener-head-manager.hpp"
@@ -141,18 +145,34 @@ int main(int argc, char *argv[]) {
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
     // Создаем глобальную конфигурацию DHT
-    ton::dht::DhtNodesList dht_nodes;
-    auto dht_config = std::make_shared<ton::dht::DhtGlobalConfig>(
-        ton::dht::DhtMember::default_k(),
-        ton::dht::DhtMember::default_a(),
-        1, // network_id
-        dht_nodes
+    auto dht_config_json = td::json_decode(R"json({
+      "k": 6,
+      "a": 3,
+      "static_nodes": {
+        "@type": "dht.nodes",
+        "nodes": []
+      }
+    })json").move_as_ok();
+
+    // Конвертируем в tl-объект
+    auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
+        td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("k").value_or(6)),
+        td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("a").value_or(3)),
+        ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<tl_object_ptr<ton::ton_api::dht_node>>())
     );
+
+    // Создаем конфигурацию
+    auto dht_config_res = ton::dht::Dht::create_global_config(std::move(dht_config_tl));
+    if (dht_config_res.is_error()) {
+      LOG(ERROR) << "Failed to create DHT config: " << dht_config_res.error().message();
+      return;
+    }
+    auto dht_config = dht_config_res.move_as_ok();
 
     // Создаем DHT
     auto dht_res = ton::dht::Dht::create(id, db_root + "/dht", dht_config, keyring.get(), adnl.get());
     if (dht_res.is_error()) {
-      LOG(ERROR) << "Failed to create DHT: " << dht_res.move_as_error();
+      LOG(ERROR) << "Failed to create DHT: " << dht_res.error().message();
       return;
     }
     auto dht = dht_res.move_as_ok();

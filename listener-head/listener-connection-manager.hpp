@@ -162,11 +162,13 @@ class ListenerConnectionManager : public td::actor::Actor {
     addr_list.add_udp_address(addr);
 
     // Получаем полный идентификатор узла через DHT или другие механизмы
-    // Это упрощенная реализация - в реальности нужно получить полный ключ
-    auto pubkey = ton::adnl::AdnlNodeIdFull{ton::PublicKey(pubkey.Ed25519{peer_id.bits256_value()})};
+    // Это упрощенная реализация - в реальности нужно получить полный ключ через DHT
+    auto pubkey_tl = ton::create_tl_object<ton::ton_api::pub_ed25519>(peer_id.bits256_value());
+    auto pub_key = ton::PublicKey{pubkey_tl};
+    auto full_id = ton::adnl::AdnlNodeIdFull{pub_key};
 
     // Добавляем пир в ADNL
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, pubkey, addr_list);
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, full_id, addr_list);
   }
 
   // Поиск новых пиров через DHT для всех мониторимых оверлеев
