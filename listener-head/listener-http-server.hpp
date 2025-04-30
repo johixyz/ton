@@ -143,22 +143,24 @@ class ListenerHttpServer : public td::actor::Actor {
     td::JsonBuilder jb;
     auto json_obj = jb.enter_object();
 
-    json_obj("blocks_received", tracker_->get_blocks_received_count());
+    json_obj("blocks_received", static_cast<td::int64>(tracker_->get_blocks_received_count()));
     json_obj("avg_processing_time", tracker_->get_average_processing_time());
 
     auto stats = tracker_->get_recent_blocks_stats(10);
-    auto blocks_arr = json_obj.enter_array("recent_blocks");
+    td::JsonBuilder blocks_jb;
+    auto blocks_arr = blocks_jb.enter_array();
 
     for (const auto& stat : stats) {
       auto block_obj = blocks_arr.enter_object();
       block_obj("block_id", stat.block_id.to_str());
       block_obj("received_at", stat.received_at.at());
-      block_obj("size", stat.message_size);
+      block_obj("size", static_cast<td::int64>(stat.message_size));
       block_obj("processing_time", stat.processing_time);
       block_obj.leave();
     }
 
     blocks_arr.leave();
+    json_obj("recent_blocks", blocks_jb.extract_string_unsafe());
     json_obj.leave();
 
     return jb.string_builder().as_cslice().str();
@@ -169,19 +171,21 @@ class ListenerHttpServer : public td::actor::Actor {
     auto json_obj = jb.enter_object();
 
     auto stats = tracker_->get_recent_blocks_stats(limit);
-    auto blocks_arr = json_obj.enter_array("blocks");
+    td::JsonBuilder blocks_jb;
+    auto blocks_arr = blocks_jb.enter_array();
 
     for (const auto& stat : stats) {
       auto block_obj = blocks_arr.enter_object();
       block_obj("block_id", stat.block_id.to_str());
       block_obj("received_at", stat.received_at.at());
-      block_obj("source_node", stat.source_node.to_hex());
-      block_obj("size", stat.message_size);
+      block_obj("source_node", stat.source_node.serialize());
+      block_obj("size", static_cast<td::int64>(stat.message_size));
       block_obj("processing_time", stat.processing_time);
       block_obj.leave();
     }
 
     blocks_arr.leave();
+    json_obj("blocks", blocks_jb.extract_string_unsafe());
     json_obj.leave();
 
     return jb.string_builder().as_cslice().str();
@@ -198,9 +202,9 @@ class ListenerHttpServer : public td::actor::Actor {
 
     json_obj("block_id", stats.block_id.to_str());
     json_obj("received_at", stats.received_at.at());
-    json_obj("source_node", stats.source_node.to_hex());
+    json_obj("source_node", stats.source_node.serialize());
     json_obj("source_addr", stats.source_addr.get_ip_str().str());
-    json_obj("size", stats.message_size);
+    json_obj("size", static_cast<td::int64>(stats.message_size));
     json_obj("processing_time", stats.processing_time);
 
     json_obj.leave();

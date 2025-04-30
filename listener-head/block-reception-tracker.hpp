@@ -50,7 +50,7 @@ class BlockReceptionTracker : public td::CntObject {
     }
   }
 
-  std::vector<BlockReceptionStats> get_recent_blocks_stats(int limit = 100) {
+  std::vector<BlockReceptionStats> get_recent_blocks_stats(int limit = 100) const {
     std::lock_guard<std::mutex> guard(mutex_);
 
     std::vector<BlockReceptionStats> result;
@@ -64,7 +64,7 @@ class BlockReceptionTracker : public td::CntObject {
     return result;
   }
 
-  BlockReceptionStats get_block_stats(BlockIdExt block_id) {
+  BlockReceptionStats get_block_stats(BlockIdExt block_id) const {
     std::lock_guard<std::mutex> guard(mutex_);
     auto it = recent_blocks_.find(block_id);
     if (it != recent_blocks_.end()) {

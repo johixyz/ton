@@ -1,7 +1,7 @@
 #pragma once
 
-#include "validator/validator.h"
-#include "validator/manager.hpp"
+#include "common/refcnt.hpp"
+#include "validator/manager.h"
 #include "block-reception-tracker.hpp"
 
 #include <atomic>
@@ -9,9 +9,9 @@
 namespace ton {
 namespace listener {
 
-class ListenerHeadManager : public validator::ValidatorManager {
+class ListenerHeadManager : public validator::ValidatorManagerImpl {
  public:
-  void install_callback(std::unique_ptr<validator::Callback> new_callback, td::Promise<td::Unit> promise) override {
+  void install_callback(std::unique_ptr<validator::ValidatorManagerInterface::Callback> new_callback, td::Promise<td::Unit> promise) override {
     callback_ = std::move(new_callback);
     promise.set_value(td::Unit());
   }
@@ -37,9 +37,9 @@ class ListenerHeadManager : public validator::ValidatorManager {
   void prevalidate_block(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
     auto reception_time = td::Timestamp::now();
 
-    // Регистрируем полученный блок
-    track_block_received(broadcast.block_id, broadcast.source_id, reception_time,
-                         broadcast.data.size(), broadcast.source_addr);
+    // Регистрируем полученный блок - используем правильные поля структуры BlockBroadcast
+    track_block_received(broadcast.block_id, adnl::AdnlNodeIdShort(), reception_time,
+                         broadcast.data.size(), td::IPAddress());
 
     // Логируем каждые 100 блоков
     if (++blocks_received_ % 100 == 0) {
@@ -82,11 +82,11 @@ class ListenerHeadManager : public validator::ValidatorManager {
     return block_tracker_;
   }
 
-  std::vector<BlockReceptionStats> get_recent_blocks_stats(int limit = 100) {
+  std::vector<BlockReceptionStats> get_recent_blocks_stats(int limit = 100) const {
     return block_tracker_->get_recent_blocks_stats(limit);
   }
 
-  BlockReceptionStats get_block_stats(BlockIdExt block_id) {
+  BlockReceptionStats get_block_stats(BlockIdExt block_id) const {
     return block_tracker_->get_block_stats(block_id);
   }
 
@@ -107,21 +107,60 @@ class ListenerHeadManager : public validator::ValidatorManager {
   ListenerHeadManager(td::Ref<validator::ValidatorManagerOptions> opts, std::string db_root,
                       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays)
-      : opts_(std::move(opts)),
-      db_root_(db_root),
-      keyring_(keyring),
-      adnl_(adnl),
-      rldp_(rldp),
-      overlays_(overlays) {
+      : validator::ValidatorManagerImpl(std::move(opts), db_root, keyring, adnl, rldp, overlays) {
     block_tracker_ = td::Ref<BlockReceptionTracker>(true);
   }
 
-  // Перегрузки остальных методов ValidatorManager (добавить заглушки для всех неиспользуемых методов)
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
+  // Реализации остальных виртуальных методов ValidatorManager
+  void validate_block(ReceivedBlock block, td::Promise<validator::BlockHandle> promise) override {
     promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
   }
 
-  // ... [здесь реализации всех остальных методов интерфейса]
+  void validate_block_proof(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
+                                td::Promise<td::Unit> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id, td::BufferSlice proof,
+                                    td::Promise<td::Unit> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void get_next_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void get_next_key_blocks(BlockIdExt block_id, td::Promise<std::vector<BlockIdExt>> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void sync_complete(td::Promise<td::Unit> promise) override {
+    promise.set_value(td::Unit());
+  }
+
+  void get_top_masterchain_state(td::Promise<td::Ref<validator::MasterchainState>> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
+
+  void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override {
+    promise.set_error(td::Status::Error(ErrorCode::error, "Not implemented in Listener Head"));
+  }
 
  private:
   void track_block_received(BlockIdExt block_id, adnl::AdnlNodeIdShort source_node,
@@ -132,14 +171,7 @@ class ListenerHeadManager : public validator::ValidatorManager {
                                          source_addr, processing_time);
   }
 
-  std::unique_ptr<validator::Callback> callback_;
-  td::Ref<validator::ValidatorManagerOptions> opts_;
-  std::string db_root_;
-  td::actor::ActorId<keyring::Keyring> keyring_;
-  td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
-  td::actor::ActorId<overlay::Overlays> overlays_;
-
+  std::unique_ptr<validator::ValidatorManagerInterface::Callback> callback_;
   std::atomic<bool> started_{false};
   std::atomic<size_t> blocks_received_{0};
   std::atomic<size_t> block_candidates_received_{0};
@@ -160,5 +192,5 @@ class ListenerHeadManagerFactory {
   }
 };
 
-} // namespace listener
-} // namespace ton
+}  // namespace listener
+}  // namespace ton

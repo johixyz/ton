@@ -36,8 +36,6 @@ class ConnectionManager : public td::actor::Actor {
   }
 
  private:
-  td::actor::ActorId<dht::Dht> dht_;
-
   struct PeerInfo {
     td::IPAddress addr;
     bool is_validator;
@@ -52,8 +50,8 @@ class ConnectionManager : public td::actor::Actor {
     // Сначала подключаемся к валидаторам
     for (auto& id : validators_) {
       auto it = peers_.find(id);
-      if (it != peers_.end() && it->second.last_connect_attempt.elapsed() >
-                                    NetworkOptimizationConfig::CONNECTION_RESET_INTERVAL) {
+      if (it != peers_.end() && (td::Timestamp::now().at() - it->second.last_connect_attempt.at() >
+                                 NetworkOptimizationConfig::CONNECTION_RESET_INTERVAL)) {
         connect_to_peer(id, it->second.addr, true);
         it->second.last_connect_attempt = td::Timestamp::now();
       }
@@ -70,7 +68,8 @@ class ConnectionManager : public td::actor::Actor {
         break;
       }
 
-      if (p.second.last_connect_attempt.elapsed() > NetworkOptimizationConfig::CONNECTION_RESET_INTERVAL) {
+      if (td::Timestamp::now().at() - p.second.last_connect_attempt.at() >
+          NetworkOptimizationConfig::CONNECTION_RESET_INTERVAL) {
         connect_to_peer(p.first, p.second.addr, false);
         p.second.last_connect_attempt = td::Timestamp::now();
         current_connections++;
@@ -79,17 +78,23 @@ class ConnectionManager : public td::actor::Actor {
   }
 
   void connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator) {
-    LOG(INFO) << "Connecting to peer " << peer_id << " at " << addr
+    LOG(INFO) << "Connecting to peer " << peer_id.serialize() << " at " << addr
               << (is_validator ? " (validator)" : "");
 
     td::uint32 priority = is_validator ? NetworkOptimizationConfig::VALIDATOR_PRIORITY : 0;
 
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, addr, priority);
+    // Создаем список адресов для ADNL
+    adnl::AdnlAddressList addr_list;
+    addr_list.add_udp_address(addr);
+
+    // Добавляем пир в ADNL
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, addr_list, priority);
 
     // Для оверлея также важно подключиться
     if (is_validator) {
       for (auto& overlay_id : overlays_to_monitor_) {
-        td::actor::send_closure(overlays_, &overlay::Overlays::add_node, overlay_id, peer_id);
+        // Используем subscribe вместо add_node
+        td::actor::send_closure(overlays_, &overlay::Overlays::subscribe, overlay_id, peer_id);
       }
     }
   }
@@ -102,12 +107,13 @@ class ConnectionManager : public td::actor::Actor {
   void start_up() override {
     alarm_timestamp() = td::Timestamp::in(1.0);
 
-    // Запускаем поиск в DHT через Overlays
+    // Запускаем поиск в DHT
     if (!overlays_to_monitor_.empty()) {
       for (auto& overlay_id : overlays_to_monitor_) {
-        LOG(INFO) << "Запрашиваем узлы для оверлея " << overlay_id.to_hex();
+        LOG(INFO) << "Запрашиваем узлы для оверлея " << overlay_id.serialize();
 
-        td::actor::send_closure(overlays_, &overlay::Overlays::get_overlay_random_peers, overlay_id,
+        // Получаем случайных пиров через DHT
+        td::actor::send_closure(dht_, &dht::Dht::get_peers, overlay_id,
                                 10, [SelfId = actor_id(this)](td::Result<std::vector<adnl::AdnlNodeIdShort>> R) {
                                   if (R.is_ok()) {
                                     auto peers = R.move_as_ok();
@@ -123,18 +129,20 @@ class ConnectionManager : public td::actor::Actor {
 
   // Дополнительный метод для поиска адреса узла через DHT
   void attempt_peer_lookup(adnl::AdnlNodeIdShort peer_id) {
-    td::actor::send_closure(adnl_, &adnl::Adnl::get_addr_list, peer_id,
+    td::actor::send_closure(dht_, &dht::Dht::get_address_list, peer_id,
                             [SelfId = actor_id(this), peer_id](td::Result<adnl::AdnlAddressList> R) {
                               if (R.is_ok()) {
                                 auto addr_list = R.move_as_ok();
                                 if (!addr_list.empty()) {
-                                  td::actor::send_closure(SelfId, &ConnectionManager::add_peer, peer_id, addr_list[0], false);
+                                  auto addr = addr_list.get_udp_address(0);
+                                  td::actor::send_closure(SelfId, &ConnectionManager::add_peer, peer_id, addr, false);
                                 }
                               }
                             });
   }
 
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
   std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_;

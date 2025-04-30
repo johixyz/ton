@@ -13,6 +13,7 @@
 #include "listener-head-manager.hpp"
 #include "listener-connection-manager.hpp"
 #include "listener-http-server.hpp"
+#include "listener-head-config.hpp"
 
 int main(int argc, char *argv[]) {
   // Настройка логирования
@@ -111,18 +112,55 @@ int main(int argc, char *argv[]) {
   // Инициализация планировщика
   td::actor::Scheduler scheduler({7});
   scheduler.run_in_context([&] {
+    // Загрузка конфигурации listener-head
+    ton::listener::ListenerConfig listener_config;
+    {
+      auto conf_data = td::read_file(config_file).move_as_ok();
+      auto conf_json = td::json_decode(conf_data.as_slice()).move_as_ok();
+      listener_config = ton::listener::ListenerConfig::from_json(conf_json);
+    }
+
+    // Устанавливаем HTTP порт из конфигурации
+    http_port = listener_config.http_port;
+
     // Загрузка глобальной конфигурации
     auto conf_data = td::read_file(global_config).move_as_ok();
-    auto conf_json = td::json_decode(conf_data.as_slice()).move_as_ok();
+    auto config_json = td::json_decode(conf_data.as_slice()).move_as_ok();
 
-    ton::ton_api::config_global conf;
-    ton::ton_api::from_json(conf, conf_json.get_object()).ensure();
+    // Получение базового блока из глобальной конфигурации
+    auto zero_state_id = ton::BlockIdExt{};
 
-    // Инициализация базового блока
-    auto zero_state_id = ton::BlockIdExt{
-        ton::BlockId{conf.zero_state_->workchain_, conf.zero_state_->shard_, conf.zero_state_->seqno_},
-        conf.zero_state_->root_hash_, conf.zero_state_->file_hash_
-    };
+    // Пытаемся извлечь информацию о zero_state из конфигурации
+    if (config_json.type() == td::JsonValue::Type::Object) {
+      auto &obj = config_json.get_object();
+      auto zero_state = td::get_json_object_field(obj, "zero_state", td::JsonValue::Type::Object, td::JsonValue());
+
+      if (zero_state.type() == td::JsonValue::Type::Object) {
+        auto &zs_obj = zero_state.get_object();
+
+        auto workchain = td::get_json_object_int_field(zs_obj, "workchain", ton::workchainIdNotYet);
+        auto shard = td::get_json_object_long_field(zs_obj, "shard", 0);
+        auto seqno = td::get_json_object_int_field(zs_obj, "seqno", 0);
+
+        auto root_hash_str = td::get_json_object_string_field(zs_obj, "root_hash", "");
+        auto file_hash_str = td::get_json_object_string_field(zs_obj, "file_hash", "");
+
+        ton::RootHash root_hash;
+        ton::FileHash file_hash;
+
+        if (!root_hash_str.empty() && !file_hash_str.empty()) {
+          if (root_hash.from_hex(root_hash_str).is_ok() && file_hash.from_hex(file_hash_str).is_ok()) {
+            zero_state_id = ton::BlockIdExt{ton::BlockId{workchain, shard, seqno}, root_hash, file_hash};
+            LOG(INFO) << "Обнаружен zero_state: " << zero_state_id.to_str();
+          }
+        }
+      }
+    }
+
+    if (zero_state_id.is_valid()) {
+      LOG(ERROR) << "Не удалось инициализировать zero_state из конфигурации";
+      return;
+    }
 
     // Инициализация keyring
     auto keyring = ton::keyring::Keyring::create(db_root + "/keyring");
@@ -131,14 +169,10 @@ int main(int argc, char *argv[]) {
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
     // Инициализация DHT
-    auto dht_config = ton::dht::DhtGlobalConfig::create(conf.dht_);
-    auto dht = ton::dht::Dht::create(db_root + "/dht", dht_config, keyring.get(), adnl.get());
+    auto dht = ton::dht::Dht::create_global_dht(db_root + "/dht", keyring.get(), adnl.get(), config_json);
 
     // Инициализация RLDP
     auto rldp = ton::rldp::Rldp::create(adnl.get());
-
-    // Инициализация RLDP2 (если используется)
-    auto rldp2 = ton::rldp2::Rldp::create(adnl.get());
 
     // Инициализация оверлеев
     auto overlays = ton::overlay::Overlays::create(db_root + "/overlays", keyring.get(), adnl.get(), dht.get());
@@ -156,13 +190,16 @@ int main(int argc, char *argv[]) {
 
     // Получаем доступ к трекеру блоков
     auto listener_manager =
-        std::static_pointer_cast<ton::listener::ListenerHeadManager>(
-            td::actor::Actor::actor_dynamic_cast(validator_manager)
+        td::actor::create_actor<ton::listener::ListenerHeadManager>(
+            "listener-head", std::move(opts), db_root + "/listenerstate", keyring.get(), adnl.get(), rldp.get(), overlays.get()
         );
 
     // Создание HTTP сервера
     auto http_server = td::actor::create_actor<ton::listener::ListenerHttpServer>(
-        "http-server", http_port, listener_manager->get_block_tracker()
+        "http-server", http_port,
+        td::actor::create_actor<ton::listener::ListenerHeadManager>(
+            "listener-head", std::move(opts), db_root + "/listenerstate", keyring.get(), adnl.get(), rldp.get(), overlays.get()
+                )->get_block_tracker()
     );
 
     // Создание менеджера соединений
@@ -172,82 +209,18 @@ int main(int argc, char *argv[]) {
 
     LOG(INFO) << "TON Listener Head успешно запущен на HTTP порту " << http_port;
 
-    // Извлечение информации о начальных узлах из global.config.json
-    LOG(INFO) << "Извлечение информации о сети из global.config.json...";
-
-    // Создаем объект для хранения сетевых настроек
-    ton::listener::ListenerConfig listener_config;
-    {
-      auto conf_data = td::read_file(config_file).move_as_ok();
-      auto conf_json = td::json_decode(conf_data.as_slice()).move_as_ok();
-      listener_config = ton::listener::ListenerConfig::from_json(conf_json);
+    // Добавляем мастерчейн оверлей для отслеживания
+    if (zero_state_id.is_valid() && zero_state_id.id.workchain == ton::masterchainId) {
+      auto overlay_id = ton::overlay::OverlayIdShort{zero_state_id.root_hash};
+      LOG(INFO) << "Добавляем мастерчейн оверлей: " << overlay_id.serialize();
+      td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::add_overlay, overlay_id);
     }
 
-    // Устанавливаем HTTP порт из конфигурации
-    http_port = listener_config.http_port;
-
-    // Получаем информацию о dht-узлах из конфигурации
-    for (const auto& dht_node : conf.dht_->static_nodes_.value()) {
-      if (dht_node->version_ >= 1 && dht_node->signature_.size() > 0) {
-        auto node_id = ton::adnl::AdnlNodeIdShort{dht_node->id_};
-        auto addr_list = dht_node->addr_list_;
-
-        if (addr_list && !addr_list->addrs_.empty()) {
-          for (const auto& addr : addr_list->addrs_) {
-            if (addr->get_id() == ton::ton_api::adnl_address_udp::ID) {
-              const auto& udp_addr = static_cast<const ton::ton_api::adnl_address_udp&>(*addr);
-              td::IPAddress ip_addr;
-              ip_addr.init_ipv4_port(udp_addr.ip_, udp_addr.port_).ensure();
-
-              LOG(INFO) << "Добавляем DHT узел: " << node_id.to_hex() << " на "
-                        << ip_addr.get_ip_str() << ":" << ip_addr.get_port();
-
-              td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::add_peer,
-                                      node_id, ip_addr, false);
-            }
-          }
-        }
-      }
-    }
-
-    // Получаем информацию о валидаторах из конфигурации (если доступна)
-    if (conf.validator_ && conf.validator_->init_block_validators_) {
-      for (const auto& val_desc : conf.validator_->init_block_validators_->list_) {
-        if (val_desc->public_key_hash_.length() == 32) {
-          auto key_hash = td::Bits256(val_desc->public_key_hash_);
-          LOG(INFO) << "Найден валидатор с ключом: " << key_hash.to_hex();
-
-          // Здесь мы не можем напрямую получить ADNL адрес валидатора,
-          // но можем добавить его как приоритетный узел для поиска
-          td::actor::send_closure(overlays, &ton::overlay::Overlays::add_priority_node, key_hash);
-        }
-      }
-    }
-
-    // Информация об оверлеях - мастерчейн всегда используется
-    ton::overlay::OverlayIdShort masterchain_overlay;
-
-    if (opts_->get_zero_block_id().workchain == ton::masterchainId) {
-      auto root_hash = opts_->get_zero_block_id().root_hash;
-      masterchain_overlay = ton::overlay::OverlayIdShort{root_hash};
-
-      LOG(INFO) << "Добавляем мастерчейн оверлей: " << root_hash.to_hex();
-      td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::add_overlay,
-                              masterchain_overlay);
-    }
-
-    // Установка максимального количества соединений
+    // Устанавливаем максимальное количество соединений
     td::actor::send_closure(connection_manager, &ton::listener::ConnectionManager::set_max_connections,
                             listener_config.max_connections);
 
-    // Настройка UDP буферов если указано в конфигурации
-    if (listener_config.udp_buffer_size > 0) {
-      td::actor::send_closure(adnl, &ton::adnl::Adnl::set_udp_buffer_size,
-                              static_cast<size_t>(listener_config.udp_buffer_size));
-    }
-
     LOG(INFO) << "Инициализация сети завершена";
-
   });
 
   // Запуск планировщика
