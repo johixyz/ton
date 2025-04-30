@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
     auto private_key = ton::PrivateKey(ton::privkeys::Ed25519::random());
     auto id = ton::adnl::AdnlNodeIdShort{private_key.compute_short_id()};
 
-    // Добавляем ключ в keyring - исправляем проблему с Promise
+    // Добавляем ключ в keyring
     auto promise = td::PromiseCreator::lambda([](td::Result<td::Unit> result) {
       if (result.is_error()) {
         LOG(ERROR) << "Error adding key to keyring: " << result.error();
@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
     // Создаем ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
-    // Создаем глобальную конфигурацию DHT - исправляем проблему с Result<JsonValue>
+    // Создаем глобальную конфигурацию DHT
     std::string json_str = R"json({
       "k": 6,
       "a": 3,
@@ -164,10 +164,22 @@ int main(int argc, char *argv[]) {
     }
     auto dht_config_json = dht_config_json_result.move_as_ok();
 
-    // Конвертируем в tl-объект с корректным доступом к полям
+    // Получаем значения k и a из JSON
+    td::int32 k_value = 6;
+    td::int32 a_value = 3;
+
+    for (const auto& kv : dht_config_json.get_object()) {
+      if (kv.first == "k") {
+        k_value = td::to_integer<td::int32>(kv.second.get_number());
+      } else if (kv.first == "a") {
+        a_value = td::to_integer<td::int32>(kv.second.get_number());
+      }
+    }
+
+    // Конвертируем в tl-объект
     auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
-        td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("k").value_or(6)),
-        td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("a").value_or(3)),
+        k_value,
+        a_value,
         ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<ton::tl_object_ptr<ton::ton_api::dht_node>>())
     );
 

@@ -45,79 +45,78 @@ struct ListenerHeadConfig {
     auto& root = json_value.get_object();
 
     // Parse http_port
-      auto field = td::get_json_object_field(root, "http_port", td::JsonValue::Type::Number, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.http_port = static_cast<td::uint16>(td::to_integer<int>(value.get_number()));
-      }
+    auto http_port_field = td::get_json_object_field(root, "http_port", td::JsonValue::Type::Number, false);
+    if (http_port_field.is_ok()) {
+      auto value = http_port_field.move_as_ok();
+      config.http_port = static_cast<td::uint16>(td::to_integer<int>(value.get_number()));
+    }
 
     // Parse log_level
-      auto field = td::get_json_object_field(root, "log_level", td::JsonValue::Type::Number, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.log_level = td::to_integer<int>(value.get_number());
-      }
-
+    auto log_level_field = td::get_json_object_field(root, "log_level", td::JsonValue::Type::Number, false);
+    if (log_level_field.is_ok()) {
+      auto value = log_level_field.move_as_ok();
+      config.log_level = td::to_integer<int>(value.get_number());
+    }
 
     // Parse max_connections
-      auto field = td::get_json_object_field(root, "max_connections", td::JsonValue::Type::Number, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.max_connections = td::to_integer<int>(value.get_number());
-      }
+    auto max_conn_field = td::get_json_object_field(root, "max_connections", td::JsonValue::Type::Number, false);
+    if (max_conn_field.is_ok()) {
+      auto value = max_conn_field.move_as_ok();
+      config.max_connections = td::to_integer<int>(value.get_number());
+    }
 
     // Parse udp_buffer_size
-      auto field = td::get_json_object_field(root, "udp_buffer_size", td::JsonValue::Type::Number, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.udp_buffer_size = td::to_integer<int>(value.get_number());
-      }
+    auto udp_buffer_field = td::get_json_object_field(root, "udp_buffer_size", td::JsonValue::Type::Number, false);
+    if (udp_buffer_field.is_ok()) {
+      auto value = udp_buffer_field.move_as_ok();
+      config.udp_buffer_size = td::to_integer<int>(value.get_number());
+    }
 
     // Parse max_blocks_to_store
-      auto field = td::get_json_object_field(root, "max_blocks_to_store", td::JsonValue::Type::Number, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.max_blocks_to_store = td::to_integer<int>(value.get_number());
-      }
+    auto max_blocks_field = td::get_json_object_field(root, "max_blocks_to_store", td::JsonValue::Type::Number, false);
+    if (max_blocks_field.is_ok()) {
+      auto value = max_blocks_field.move_as_ok();
+      config.max_blocks_to_store = td::to_integer<int>(value.get_number());
+    }
 
     // Parse save_blocks_to_db
-      auto field = td::get_json_object_field(root, "save_blocks_to_db", td::JsonValue::Type::Boolean, false);
-      if (field.is_ok()) {
-        auto value = field.move_as_ok();
-        config.save_blocks_to_db = value.get_boolean();
-      }
+    auto save_blocks_field = td::get_json_object_field(root, "save_blocks_to_db", td::JsonValue::Type::Boolean, false);
+    if (save_blocks_field.is_ok()) {
+      auto value = save_blocks_field.move_as_ok();
+      config.save_blocks_to_db = value.get_boolean();
+    }
 
     // Parse static_nodes
-      auto field = td::get_json_object_field(root, "static_nodes", td::JsonValue::Type::Array, false);
-      if (field.is_ok()) {
-        auto nodes_array = field.move_as_ok().get_array();
-        for (auto& node_elem : nodes_array) {
-          if (node_elem.type() == td::JsonValue::Type::Object) {
-            auto& node_obj = node_elem.get_object();
-            auto address_field = td::get_json_object_field(node_obj, "address", td::JsonValue::Type::String, false);
-            auto key_field = td::get_json_object_field(node_obj, "key", td::JsonValue::Type::String, false);
+    auto static_nodes_field = td::get_json_object_field(root, "static_nodes", td::JsonValue::Type::Array, false);
+    if (static_nodes_field.is_ok()) {
+      auto& nodes_array = static_nodes_field.move_as_ok().get_array();
+      for (size_t i = 0; i < nodes_array.size(); i++) {
+        auto& node_elem = nodes_array[i];
+        if (node_elem.type() == td::JsonValue::Type::Object) {
+          auto& node_obj = node_elem.get_object();
+          auto address_field = td::get_json_object_field(node_obj, "address", td::JsonValue::Type::String, false);
+          auto key_field = td::get_json_object_field(node_obj, "key", td::JsonValue::Type::String, false);
 
-            if (address_field.is_ok() && key_field.is_ok()) {
-              std::string address = address_field.ok().get_string().str();
-              std::string key = key_field.ok().get_string().str();
-              config.static_nodes.emplace_back(address, key);
-            }
+          if (address_field.is_ok() && key_field.is_ok()) {
+            std::string address = address_field.ok().get_string().str();
+            std::string key = key_field.ok().get_string().str();
+            config.static_nodes.emplace_back(address, key);
           }
         }
       }
-
-    return config;
+    }
 
     // Parse overlay_ids
-      auto field = td::get_json_object_field(root, "overlay_ids", td::JsonValue::Type::Array, false);
-      if (field.is_ok()) {
-        auto overlay_array = field.move_as_ok().get_array();
-        for (auto& overlay_elem : overlay_array) {
-          if (overlay_elem.type() == td::JsonValue::Type::String) {
-            config.overlay_ids.push_back(overlay_elem.get_string().str());
-          }
+    auto overlay_ids_field = td::get_json_object_field(root, "overlay_ids", td::JsonValue::Type::Array, false);
+    if (overlay_ids_field.is_ok()) {
+      auto& overlay_array = overlay_ids_field.move_as_ok().get_array();
+      for (size_t i = 0; i < overlay_array.size(); i++) {
+        auto& overlay_elem = overlay_array[i];
+        if (overlay_elem.type() == td::JsonValue::Type::String) {
+          config.overlay_ids.push_back(overlay_elem.get_string().str());
         }
       }
+    }
 
     return config;
   }
