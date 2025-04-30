@@ -139,26 +139,29 @@ int main(int argc, char *argv[]) {
 
     // Добавляем ключ в keyring
     td::Promise<td::Unit> promise;
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, private_key, false, promise);
+    auto adapter_promise = td::Promise<td::Unit>{promise};
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, private_key, false, std::move(adapter_promise));
 
     // Создаем ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
     // Создаем глобальную конфигурацию DHT
-    auto dht_config_json = td::json_decode(R"json({
+    std::string json_str = R"json({
       "k": 6,
       "a": 3,
       "static_nodes": {
         "@type": "dht.nodes",
         "nodes": []
       }
-    })json").move_as_ok();
+    })json";
+    auto dht_config_json = td::json_decode(td::MutableSlice(json_str));
+
 
     // Конвертируем в tl-объект
     auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
         td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("k").value_or(6)),
         td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("a").value_or(3)),
-        ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<tl_object_ptr<ton::ton_api::dht_node>>())
+        ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<ton::tl_object_ptr<ton::ton_api::dht_node>>())
     );
 
     // Создаем конфигурацию

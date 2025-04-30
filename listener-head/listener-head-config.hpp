@@ -30,7 +30,7 @@ struct ListenerHeadConfig {
   static ListenerHeadConfig load_from_json(const std::string& json_data) {
     ListenerHeadConfig config;
 
-    auto json_parse_result = td::json_decode(json_data);
+    auto json_parse_result = td::json_decode(td::MutableSlice(const_cast<char*>(json_data.c_str()), json_data.size()));
     if (json_parse_result.is_error()) {
       LOG(ERROR) << "Error parsing JSON config: " << json_parse_result.error().message();
       return config;

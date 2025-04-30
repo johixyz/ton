@@ -25,7 +25,7 @@ class ListenerConnectionManager : public td::actor::Actor {
   ListenerConnectionManager(td::actor::ActorId<adnl::Adnl> adnl,
                             td::actor::ActorId<overlay::Overlays> overlays,
                             td::actor::ActorId<dht::Dht> dht)
-      : adnl_(adnl), overlays_(overlays), dht_(dht) {
+      : adnl_(adnl), dht_(dht), overlays_(overlays) {
   }
 
   // Добавление пира для подключения
@@ -164,7 +164,8 @@ class ListenerConnectionManager : public td::actor::Actor {
     // Получаем полный идентификатор узла через DHT или другие механизмы
     // Это упрощенная реализация - в реальности нужно получить полный ключ через DHT
     auto pubkey_tl = ton::create_tl_object<ton::ton_api::pub_ed25519>(peer_id.bits256_value());
-    auto pub_key = ton::PublicKey{pubkey_tl};
+    auto pubkey_ed25519 = ton::pubkeys::Ed25519{peer_id.bits256_value()};
+    auto pub_key = ton::PublicKey{pubkey_ed25519};
     auto full_id = ton::adnl::AdnlNodeIdFull{pub_key};
 
     // Добавляем пир в ADNL
