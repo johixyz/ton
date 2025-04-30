@@ -36,8 +36,8 @@ target_include_directories(ton-listener-head PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
-# Установка компилятора для C++14
-set_property(TARGET ton-listener-head PROPERTY CXX_STANDARD 14)
+# Установка компилятора для C++20
+set_property(TARGET ton-listener-head PROPERTY CXX_STANDARD 20)
 
 # Установка исполняемого файла
 install(TARGETS ton-listener-head RUNTIME DESTINATION bin)
