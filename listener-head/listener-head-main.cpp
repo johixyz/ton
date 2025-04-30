@@ -116,8 +116,8 @@ int main(int argc, char *argv[]) {
     ton::listener::ListenerConfig listener_config;
     {
       auto conf_data = td::read_file(config_file).move_as_ok();
-      auto conf_json = td::json_decode(conf_data.as_slice()).move_as_ok();
-      listener_config = ton::listener::ListenerConfig::from_json(conf_json);
+      auto json_value = td::json_decode(conf_data.as_slice()).move_as_ok();
+      listener_config = ton::listener::ListenerConfig::from_json(json_value);
     }
 
     // Устанавливаем HTTP порт из конфигурации
