@@ -45,55 +45,50 @@ struct ListenerHeadConfig {
     auto& root = json_value.get_object();
 
     // Parse http_port
-    if (auto field = td::get_json_object_field(root, "http_port", td::JsonValue::Type::Number, false)) {
+      auto field = td::get_json_object_field(root, "http_port", td::JsonValue::Type::Number, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.http_port = static_cast<td::uint16>(td::to_integer<int>(value.get_number()));
       }
-    }
 
     // Parse log_level
-    if (auto field = td::get_json_object_field(root, "log_level", td::JsonValue::Type::Number, false)) {
+      auto field = td::get_json_object_field(root, "log_level", td::JsonValue::Type::Number, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.log_level = td::to_integer<int>(value.get_number());
       }
-    }
+
 
     // Parse max_connections
-    if (auto field = td::get_json_object_field(root, "max_connections", td::JsonValue::Type::Number, false)) {
+      auto field = td::get_json_object_field(root, "max_connections", td::JsonValue::Type::Number, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.max_connections = td::to_integer<int>(value.get_number());
       }
-    }
 
     // Parse udp_buffer_size
-    if (auto field = td::get_json_object_field(root, "udp_buffer_size", td::JsonValue::Type::Number, false)) {
+      auto field = td::get_json_object_field(root, "udp_buffer_size", td::JsonValue::Type::Number, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.udp_buffer_size = td::to_integer<int>(value.get_number());
       }
-    }
 
     // Parse max_blocks_to_store
-    if (auto field = td::get_json_object_field(root, "max_blocks_to_store", td::JsonValue::Type::Number, false)) {
+      auto field = td::get_json_object_field(root, "max_blocks_to_store", td::JsonValue::Type::Number, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.max_blocks_to_store = td::to_integer<int>(value.get_number());
       }
-    }
 
     // Parse save_blocks_to_db
-    if (auto field = td::get_json_object_field(root, "save_blocks_to_db", td::JsonValue::Type::Boolean, false)) {
+      auto field = td::get_json_object_field(root, "save_blocks_to_db", td::JsonValue::Type::Boolean, false);
       if (field.is_ok()) {
         auto value = field.move_as_ok();
         config.save_blocks_to_db = value.get_boolean();
       }
-    }
 
     // Parse static_nodes
-    if (auto field = td::get_json_object_field(root, "static_nodes", td::JsonValue::Type::Array, false)) {
+      auto field = td::get_json_object_field(root, "static_nodes", td::JsonValue::Type::Array, false);
       if (field.is_ok()) {
         auto nodes_array = field.move_as_ok().get_array();
         for (auto& node_elem : nodes_array) {
@@ -110,12 +105,11 @@ struct ListenerHeadConfig {
           }
         }
       }
-    }
 
     return config;
 
     // Parse overlay_ids
-    if (auto field = td::get_json_object_field(root, "overlay_ids", td::JsonValue::Type::Array, false)) {
+      auto field = td::get_json_object_field(root, "overlay_ids", td::JsonValue::Type::Array, false);
       if (field.is_ok()) {
         auto overlay_array = field.move_as_ok().get_array();
         for (auto& overlay_elem : overlay_array) {
@@ -124,7 +118,6 @@ struct ListenerHeadConfig {
           }
         }
       }
-    }
 
     return config;
   }

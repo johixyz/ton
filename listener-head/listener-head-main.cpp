@@ -137,15 +137,18 @@ int main(int argc, char *argv[]) {
     auto private_key = ton::PrivateKey(ton::privkeys::Ed25519::random());
     auto id = ton::adnl::AdnlNodeIdShort{private_key.compute_short_id()};
 
-    // Добавляем ключ в keyring
-    td::Promise<td::Unit> promise;
-    auto adapter_promise = td::Promise<td::Unit>{promise};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, private_key, false, std::move(adapter_promise));
+    // Добавляем ключ в keyring - исправляем проблему с Promise
+    auto promise = td::PromiseCreator::lambda([](td::Result<td::Unit> result) {
+      if (result.is_error()) {
+        LOG(ERROR) << "Error adding key to keyring: " << result.error();
+      }
+    });
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, private_key, false, std::move(promise));
 
     // Создаем ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
-    // Создаем глобальную конфигурацию DHT
+    // Создаем глобальную конфигурацию DHT - исправляем проблему с Result<JsonValue>
     std::string json_str = R"json({
       "k": 6,
       "a": 3,
@@ -154,10 +157,14 @@ int main(int argc, char *argv[]) {
         "nodes": []
       }
     })json";
-    auto dht_config_json = td::json_decode(td::MutableSlice(json_str));
+    auto dht_config_json_result = td::json_decode(td::MutableSlice(json_str));
+    if (dht_config_json_result.is_error()) {
+      LOG(ERROR) << "Failed to parse DHT config JSON: " << dht_config_json_result.error().message();
+      return;
+    }
+    auto dht_config_json = dht_config_json_result.move_as_ok();
 
-
-    // Конвертируем в tl-объект
+    // Конвертируем в tl-объект с корректным доступом к полям
     auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
         td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("k").value_or(6)),
         td::to_integer<td::int32>(dht_config_json.get_object().get_optional_int("a").value_or(3)),
