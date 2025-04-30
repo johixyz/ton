@@ -129,7 +129,7 @@ class ListenerHeadManager : public td::actor::Actor {
 
   // Добавление оверлея для прослушивания
   void add_overlay_to_listen(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Adding overlay to listen: " << overlay_id.to_hex();
+    LOG(INFO) << "Adding overlay to listen: " << overlay_id.bits256_value();
 
     // Проверяем, не добавлен ли уже этот оверлей
     if (monitored_overlays_.find(overlay_id) != monitored_overlays_.end()) {
@@ -143,11 +143,19 @@ class ListenerHeadManager : public td::actor::Actor {
 
   // Метод для ручного подключения к узлу
   void connect_to_node(adnl::AdnlNodeIdShort node_id, td::IPAddress addr, bool is_validator = false) {
-    LOG(INFO) << "Manually connecting to node: " << node_id.to_hex() << " at " << addr.get_ip_str();
+    LOG(INFO) << "Manually connecting to node: " << node_id.bits256_value() << " at " << addr.get_ip_str();
 
-    // Логика подключения к узлу
-    td::uint32 priority = is_validator ? 1 : 0; // приоритет для валидаторов
-    try_connect_to_peer(node_id, addr, priority);
+    // Создаем полный идентификатор узла
+    // Это упрощенный пример - в реальном коде нужно получить полный ключ
+    auto pubkey = ton::PublicKey(ton::pubkeys::Ed25519{node_id.bits256_value()});
+    auto full_id = ton::adnl::AdnlNodeIdFull{pubkey};
+
+    // Создаем список адресов
+    adnl::AdnlAddressList addr_list;
+    addr_list.add_udp_address(addr);
+
+    // Добавляем пир в ADNL
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, node_id, full_id, addr_list);
   }
 
  private:
@@ -165,19 +173,16 @@ class ListenerHeadManager : public td::actor::Actor {
   }
 
   void start_listening_overlay(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Starting to listen for overlay: " << overlay_id.to_hex();
+    LOG(INFO) << "Starting to listen for overlay: " << overlay_id.bits256_value();
 
-    // Подписка на получение сообщений от оверлея
-    // Логика будет зависеть от доступных методов API TON
-
-    // Пример (упрощенный, реальный код может отличаться):
-    // td::actor::send_closure(overlays_, &overlay::Overlays::add_overlay, overlay_id, ...)
+    // Здесь должен быть код для подписки на сообщения от оверлея
+    // Реализация будет зависеть от конкретного API TON
   }
 
   void stop_listening() {
     // Отписываемся от всех оверлеев
     for (const auto& overlay_id : monitored_overlays_) {
-      LOG(INFO) << "Stopping listening for overlay: " << overlay_id.to_hex();
+      LOG(INFO) << "Stopping listening for overlay: " << overlay_id.bits256_value();
       // td::actor::send_closure(overlays_, &overlay::Overlays::remove_overlay, overlay_id, ...)
     }
   }
@@ -188,20 +193,6 @@ class ListenerHeadManager : public td::actor::Actor {
 
     // Можно проверить число полученных блоков за последнее время
     // и предпринять меры если блоки не поступают
-  }
-
-  void try_connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, td::uint32 priority = 0) {
-    // Создаем список адресов для ADNL
-    adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(addr);
-
-    // Добавляем пир в ADNL
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, addr_list, priority);
-
-    // Добавляем этот пир ко всем мониторимым оверлеям
-    for (const auto& overlay_id : monitored_overlays_) {
-      // Здесь используем доступные методы API оверлеев
-    }
   }
 
   void track_block_received(BlockIdExt block_id, std::string source_id,

@@ -2,10 +2,12 @@
 #include "adnl/adnl-ext-client.h"
 #include "rldp/rldp.h"
 #include "dht/dht.h"
+#include "dht/dht.hpp"
 #include "overlay/overlays.h"
 #include "td/utils/OptionsParser.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/signals.h"
+#include <unistd.h>
 
 #include "listener-head-manager.hpp"
 #include "listener-connection-manager.hpp"
@@ -14,6 +16,7 @@
 
 #include <iostream>
 #include <string>
+#include <memory>
 
 int main(int argc, char *argv[]) {
   // Настройка логирования
@@ -125,8 +128,36 @@ int main(int argc, char *argv[]) {
 
     // Создаем базовые компоненты TON
     auto keyring = ton::keyring::Keyring::create(db_root + "/keyring");
+
+    // Генерируем локальный ключ для DHT
+    auto private_key = ton::PrivateKey(ton::privkeys::Ed25519::random());
+    auto id = ton::adnl::AdnlNodeIdShort{private_key.compute_short_id()};
+
+    // Добавляем ключ в keyring
+    td::Promise<td::Unit> promise;
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, private_key, false, promise);
+
+    // Создаем ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
-    auto dht = ton::dht::Dht::create(db_root + "/dht", nullptr, keyring.get(), adnl.get());
+
+    // Создаем глобальную конфигурацию DHT
+    ton::dht::DhtNodesList dht_nodes;
+    auto dht_config = std::make_shared<ton::dht::DhtGlobalConfig>(
+        ton::dht::DhtMember::default_k(),
+        ton::dht::DhtMember::default_a(),
+        1, // network_id
+        dht_nodes
+    );
+
+    // Создаем DHT
+    auto dht_res = ton::dht::Dht::create(id, db_root + "/dht", dht_config, keyring.get(), adnl.get());
+    if (dht_res.is_error()) {
+      LOG(ERROR) << "Failed to create DHT: " << dht_res.move_as_error();
+      return;
+    }
+    auto dht = dht_res.move_as_ok();
+
+    // Создаем RLDP и overlay
     auto rldp = ton::rldp::Rldp::create(adnl.get());
     auto overlays = ton::overlay::Overlays::create(db_root + "/overlays", keyring.get(), adnl.get(), dht.get());
 

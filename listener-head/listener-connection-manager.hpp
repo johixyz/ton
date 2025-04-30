@@ -30,7 +30,8 @@ class ListenerConnectionManager : public td::actor::Actor {
 
   // Добавление пира для подключения
   void add_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator = false) {
-    LOG(INFO) << "Adding peer " << peer_id.to_hex() << " at " << addr.get_ip_str()
+    LOG(INFO) << "Adding peer " << peer_id.bits256_value()
+              << " at " << addr.get_ip_str()
               << (is_validator ? " (validator)" : "");
 
     peers_[peer_id] = {addr, is_validator, td::Timestamp::now()};
@@ -42,7 +43,7 @@ class ListenerConnectionManager : public td::actor::Actor {
 
   // Добавление оверлея для мониторинга и поиска пиров
   void add_overlay(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Adding overlay to monitor: " << overlay_id.to_hex();
+    LOG(INFO) << "Adding overlay to monitor: " << overlay_id.bits256_value();
 
     overlays_to_monitor_.insert(overlay_id);
     discover_overlay_peers(overlay_id);
@@ -70,7 +71,7 @@ class ListenerConnectionManager : public td::actor::Actor {
     size_t i = 0;
     for (const auto& p : peers_) {
       result += "    {\n";
-      result += "      \"peer_id\": \"" + p.first.to_hex() + "\",\n";
+      result += "      \"peer_id\": \"" + p.first.bits256_value().to_hex() + "\",\n";
       result += "      \"ip\": \"" + p.second.addr.get_ip_str().str() + "\",\n";
       result += "      \"port\": " + std::to_string(p.second.addr.get_port()) + ",\n";
       result += "      \"is_validator\": " + std::string(p.second.is_validator ? "true" : "false") + ",\n";
@@ -150,7 +151,8 @@ class ListenerConnectionManager : public td::actor::Actor {
 
   // Подключение к конкретному пиру
   void connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator) {
-    LOG(INFO) << "Connecting to peer " << peer_id.to_hex() << " at " << addr.get_ip_str()
+    LOG(INFO) << "Connecting to peer " << peer_id.bits256_value()
+              << " at " << addr.get_ip_str()
               << (is_validator ? " (validator)" : "");
 
     td::uint32 priority = is_validator ? NetworkConfig::VALIDATOR_PRIORITY : 0;
@@ -159,8 +161,12 @@ class ListenerConnectionManager : public td::actor::Actor {
     adnl::AdnlAddressList addr_list;
     addr_list.add_udp_address(addr);
 
+    // Получаем полный идентификатор узла через DHT или другие механизмы
+    // Это упрощенная реализация - в реальности нужно получить полный ключ
+    auto pubkey = ton::adnl::AdnlNodeIdFull{ton::PublicKey(pubkey.Ed25519{peer_id.bits256_value()})};
+
     // Добавляем пир в ADNL
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, addr_list, priority);
+    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, pubkey, addr_list);
   }
 
   // Поиск новых пиров через DHT для всех мониторимых оверлеев
@@ -177,27 +183,24 @@ class ListenerConnectionManager : public td::actor::Actor {
     std::advance(it, index);
     auto overlay_id = *it;
 
-    LOG(INFO) << "Looking for peers in overlay " << overlay_id.to_hex();
+    LOG(INFO) << "Looking for peers in overlay " << overlay_id.bits256_value();
     discover_overlay_peers(overlay_id);
   }
 
   // Поиск пиров для конкретного оверлея
   void discover_overlay_peers(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Discovering peers for overlay " << overlay_id.to_hex();
+    LOG(INFO) << "Discovering peers for overlay " << overlay_id.bits256_value();
 
-    // Здесь должен быть код для поиска пиров через доступный API
-    // Например, через DHT или другие механизмы TON
-
-    // Примечание: конкретная реализация будет зависеть от доступных API
-    // В вашей версии TON
+    // Здесь должен быть код для поиска пиров через DHT или другие механизмы TON
+    // В данной реализации это заглушка, реальную реализацию нужно доработать
   }
 
   // Поиск адреса узла через DHT или другие механизмы
   void lookup_peer_address(adnl::AdnlNodeIdShort peer_id) {
-    LOG(INFO) << "Looking up address for peer " << peer_id.to_hex();
+    LOG(INFO) << "Looking up address for peer " << peer_id.bits256_value();
 
-    // Здесь должен быть код для поиска адреса узла
-    // через доступные API TON
+    // Здесь должен быть код для поиска адреса узла через DHT
+    // В данной реализации это заглушка, реальную реализацию нужно доработать
   }
 
   // Поля класса

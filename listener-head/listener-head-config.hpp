@@ -1,17 +1,18 @@
 #pragma once
-
 #include <string>
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <json/json.h>
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/logging.h"
 
 namespace ton {
 namespace listener {
-
 // Конфигурация ListenerHead
 struct ListenerHeadConfig {
   // Общие настройки
-  int http_port = 8080;
+  td::uint16 http_port = 8080;
   int log_level = 3;
   int max_connections = 1000;
   int udp_buffer_size = 10 * 1024 * 1024;
@@ -24,50 +25,60 @@ struct ListenerHeadConfig {
   int max_blocks_to_store = 10000;
   bool save_blocks_to_db = false;
 
-  // Простой парсер для загрузки из JSON
+  // Загрузка из JSON
   static ListenerHeadConfig load_from_json(const std::string& json_data) {
     ListenerHeadConfig config;
 
-    // Простой парсинг (очень базовый, для реального использования лучше взять нормальную библиотеку)
+    try {
+      auto parser = td::json_decode(json_data);
 
-    // Парсинг HTTP порта
-    if (json_data.find("\"http_port\":") != std::string::npos) {
-      size_t pos = json_data.find("\"http_port\":");
-      pos = json_data.find_first_of("0123456789", pos);
-      if (pos != std::string::npos) {
-        config.http_port = std::stoi(json_data.substr(pos));
+      if (parser.has_key("http_port")) {
+        config.http_port = static_cast<td::uint16>(parser.get_number("http_port"));
       }
-    }
 
-    // Парсинг уровня логирования
-    if (json_data.find("\"log_level\":") != std::string::npos) {
-      size_t pos = json_data.find("\"log_level\":");
-      pos = json_data.find_first_of("0123456789", pos);
-      if (pos != std::string::npos) {
-        config.log_level = std::stoi(json_data.substr(pos));
+      if (parser.has_key("log_level")) {
+        config.log_level = static_cast<int>(parser.get_number("log_level"));
       }
-    }
 
-    // Парсинг max_connections
-    if (json_data.find("\"max_connections\":") != std::string::npos) {
-      size_t pos = json_data.find("\"max_connections\":");
-      pos = json_data.find_first_of("0123456789", pos);
-      if (pos != std::string::npos) {
-        config.max_connections = std::stoi(json_data.substr(pos));
+      if (parser.has_key("max_connections")) {
+        config.max_connections = static_cast<int>(parser.get_number("max_connections"));
       }
-    }
 
-    // Парсинг udp_buffer_size
-    if (json_data.find("\"udp_buffer_size\":") != std::string::npos) {
-      size_t pos = json_data.find("\"udp_buffer_size\":");
-      pos = json_data.find_first_of("0123456789", pos);
-      if (pos != std::string::npos) {
-        config.udp_buffer_size = std::stoi(json_data.substr(pos));
+      if (parser.has_key("udp_buffer_size")) {
+        config.udp_buffer_size = static_cast<int>(parser.get_number("udp_buffer_size"));
       }
-    }
 
-    // Более сложные поля (как static_nodes, overlay_ids) требуют более
-    // сложного парсинга, здесь для простоты опущены
+      if (parser.has_key("max_blocks_to_store")) {
+        config.max_blocks_to_store = static_cast<int>(parser.get_number("max_blocks_to_store"));
+      }
+
+      if (parser.has_key("save_blocks_to_db")) {
+        config.save_blocks_to_db = parser.get_boolean("save_blocks_to_db");
+      }
+
+      // Парсинг static_nodes
+      if (parser.has_key("static_nodes") && parser.has_array("static_nodes")) {
+        auto nodes_array = parser.get_array("static_nodes");
+        for (auto& node_elem : nodes_array) {
+          if (node_elem.has_key("address") && node_elem.has_key("key")) {
+            std::string address = node_elem.get_string("address");
+            std::string key = node_elem.get_string("key");
+            config.static_nodes.emplace_back(address, key);
+          }
+        }
+      }
+
+      // Парсинг overlay_ids
+      if (parser.has_key("overlay_ids") && parser.has_array("overlay_ids")) {
+        auto overlay_array = parser.get_array("overlay_ids");
+        for (auto& overlay_elem : overlay_array) {
+          config.overlay_ids.push_back(overlay_elem.get_string());
+        }
+      }
+
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "Error parsing JSON config: " << e.what();
+    }
 
     return config;
   }
@@ -76,7 +87,7 @@ struct ListenerHeadConfig {
   static ListenerHeadConfig load_from_file(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
-      // В случае ошибки возвращаем конфигурацию по умолчанию
+      LOG(WARNING) << "Cannot open config file: " << filename << ", using default config";
       return ListenerHeadConfig();
     }
 
@@ -111,6 +122,5 @@ struct ListenerHeadConfig {
     return result;
   }
 };
-
 } // namespace listener
 } // namespace ton
