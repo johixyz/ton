@@ -178,9 +178,9 @@ int main(int argc, char *argv[]) {
 
     // Конвертируем в tl-объект
     auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
+        ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<ton::tl_object_ptr<ton::ton_api::dht_node>>()),
         k_value,
-        a_value,
-        ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<ton::tl_object_ptr<ton::ton_api::dht_node>>())
+        a_value
     );
 
     // Создаем конфигурацию
