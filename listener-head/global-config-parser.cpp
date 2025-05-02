@@ -209,7 +209,7 @@ class GlobalConfigParser {
     {
       auto basechain_blocks = create_tl_object<ton_api::tonNode_blockIdExt>(
           ton::basechainId, ton::shardIdAll, 0, td::Bits256::zero(), td::Bits256::zero());
-      auto node_id_full = adnl::AdnlNodeIdFull{ton::PublicKey{ton::pubkeys::Ed25519{masterchain_blocks->root_hash_}}};
+      auto node_id_full = adnl::AdnlNodeIdFull{ton::PublicKey{ton::pubkeys::Ed25519{basechain_blocks->root_hash_}}};
       auto overlay_id = overlay::OverlayIdFull{node_id_full.pubkey().export_as_slice()};
       result.push_back(overlay_id);
     }

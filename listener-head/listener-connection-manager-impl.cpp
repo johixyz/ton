@@ -2,6 +2,7 @@
 
 #include "listener-connection-manager.hpp"
 #include "td/utils/overloaded.h"
+#include "td/utils/Random.h"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
 
@@ -136,7 +137,7 @@ void ListenerConnectionManager::lookup_peers_via_dht(overlay::OverlayIdShort ove
       auto id_short = id_full.compute_short_id();
 
       // Пытаемся извлечь IP адрес
-      auto R4 = adnl::AdnlAddressList::create(std::move(node->addr_list_));
+      auto R4 = adnl::AdnlAddressList::create(std::move(node->addr_list));
       if (R4.is_error()) {
         LOG(WARNING) << "Invalid address list: " << R4.move_as_error();
         continue;
