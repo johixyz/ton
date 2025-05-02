@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
         LOG(ERROR) << "Ошибка при чтении глобального конфига: " << res.move_as_error();
         return;
       }
-      global_config_data = res.move_as_ok();
+      global_config_data = res.move_as_ok().as_slice().str();
     } catch (const std::exception& e) {
       LOG(ERROR) << "Ошибка при загрузке глобального конфига: " << e.what();
       return;
@@ -260,7 +260,9 @@ int main(int argc, char *argv[]) {
       try {
         // Преобразуем строку hex в OverlayIdShort
         td::Bits256 bits = td::Bits256::zero();
-        if (td::hex_decode(overlay_id_str, bits.as_slice()).is_ok()) {
+        auto r = td::hex_decode(overlay_id_str);
+        if (r.is_ok() && r.ok().size() == bits.as_slice().size() &&
+            r.ok().copy_to(bits.as_slice()).is_ok()) {
           auto overlay_id = ton::overlay::OverlayIdShort{bits};
           td::actor::send_closure(listener_manager, &ton::listener::ListenerHeadManager::add_overlay_to_listen, overlay_id);
           td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::add_overlay, overlay_id);

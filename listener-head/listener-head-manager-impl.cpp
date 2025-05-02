@@ -120,9 +120,9 @@ void ListenerHeadManager::process_overlay_message(adnl::AdnlNodeIdShort src, ove
 
   auto obj = R.move_as_ok();
 
-  td::ton_api::downcast_call(*obj.get(), [&, self = this, src, reception_time](auto& object) {
+  ton_api::downcast_call(*obj.get(), [&, self = this, src, reception_time](auto& object) {
     using td::to_string;
-    using namespace td::ton_api;
+    using namespace ton_api;
 
     LOG(DEBUG) << "Processing overlay message of type: " << to_string(object.get_id());
 

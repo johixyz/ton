@@ -221,7 +221,8 @@ class GlobalConfigParser {
   static td::Result<std::vector<StaticNodeInfo>> parse_liteservers(td::Slice json_data) {
     std::vector<StaticNodeInfo> result;
 
-    auto json_parse_result = td::json_decode(json_data);
+    std::string json_str = json_data.str();
+    auto json_parse_result = td::json_decode(td::MutableSlice(json_str));
     if (json_parse_result.is_error()) {
       return json_parse_result.move_as_error();
     }
