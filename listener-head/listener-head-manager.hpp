@@ -7,6 +7,7 @@
 #include "ton/ton-types.h"
 #include "block-reception-tracker.hpp"
 #include "td/utils/overloaded.h"
+#include "listener-connection-manager.hpp"
 
 namespace ton {
 namespace listener {
@@ -18,13 +19,16 @@ class ListenerHeadManager : public td::actor::Actor {
                       td::actor::ActorId<keyring::Keyring> keyring,
                       td::actor::ActorId<adnl::Adnl> adnl,
                       td::actor::ActorId<overlay::Overlays> overlays,
-                      td::actor::ActorId<dht::Dht> dht)
+                      td::actor::ActorId<dht::Dht> dht,
+                      td::actor::ActorId<ListenerConnectionManager> connection_manager)
       : db_root_(db_root),
       keyring_(keyring),
       adnl_(adnl),
       overlays_(overlays),
-      dht_(dht) {
+      dht_(dht),
+      connection_manager_(connection_manager) {
     block_tracker_ = std::make_shared<BlockReceptionTracker>();
+    last_block_received_at_ = td::Timestamp::now();
   }
 
   // Обработка нового блока из сети
@@ -42,9 +46,6 @@ class ListenerHeadManager : public td::actor::Actor {
       LOG(INFO) << "ListenerHeadManager received " << blocks_received_
                 << " blocks, total " << block_tracker_->get_blocks_received_count();
     }
-
-    // Здесь можно добавить дополнительную логику анализа блока
-    // например: анализ транзакций, сохранение в БД и т.д.
   }
 
   // Обработка блока-кандидата
@@ -102,104 +103,51 @@ class ListenerHeadManager : public td::actor::Actor {
     return block_tracker_->get_full_stats_json();
   }
 
+  // Добавление оверлея для прослушивания
+  void add_overlay_to_listen(overlay::OverlayIdShort overlay_id);
+
+  // Добавление известного валидатора для приоритетного подключения
+  void add_known_validator(adnl::AdnlNodeIdShort validator_id, td::IPAddress addr);
+
+  // Установка локального ADNL ID для подключения к оверлеям
+  void set_local_id(adnl::AdnlNodeIdShort local_id) {
+    local_id_ = local_id;
+  }
+
+  // Методы для обработки сообщений оверлея
+  void process_overlay_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data);
+  void process_broadcast_message(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data);
+
+  // Методы для обработки различных типов broadcast сообщений
+  void process_block_broadcast(adnl::AdnlNodeIdShort src, td::Timestamp reception_time, ton_api::overlay_broadcast& msg);
+  void process_block_broadcast_fec(adnl::AdnlNodeIdShort src, td::Timestamp reception_time, ton_api::overlay_broadcastFec& msg);
+  void process_block_broadcast_fec_short(adnl::AdnlNodeIdShort src, td::Timestamp reception_time, ton_api::overlay_broadcastFecShort& msg);
+  void process_block_unicast(adnl::AdnlNodeIdShort src, td::Timestamp reception_time, ton_api::overlay_unicast& msg);
+
+  // Метод для минимальной обработки блока
+  void try_process_block(BlockIdExt block_id, td::BufferSlice data, std::string source);
+
   // Методы жизненного цикла актора
-  void start_up() override {
-    LOG(INFO) << "ListenerHeadManager starting up...";
-
-    // Устанавливаем периодический таймер для действий
-    alarm_timestamp() = td::Timestamp::in(1.0);
-
-    start_listening();
-
-    LOG(INFO) << "ListenerHeadManager started successfully";
-  }
-
-  void alarm() override {
-    // Периодические действия
-    check_connection_status();
-
-    // Переустанавливаем таймер
-    alarm_timestamp() = td::Timestamp::in(60.0); // каждую минуту
-  }
-
+  void start_up() override;
+  void alarm() override;
   void tear_down() override {
     LOG(INFO) << "ListenerHeadManager shutting down...";
     stop_listening();
   }
 
-  // Добавление оверлея для прослушивания
-  void add_overlay_to_listen(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Adding overlay to listen: " << overlay_id.bits256_value();
-
-    // Проверяем, не добавлен ли уже этот оверлей
-    if (monitored_overlays_.find(overlay_id) != monitored_overlays_.end()) {
-      LOG(INFO) << "Overlay already being monitored";
-      return;
-    }
-
-    monitored_overlays_.insert(overlay_id);
-    start_listening_overlay(overlay_id);
-  }
-
-  // Метод для ручного подключения к узлу
-  void connect_to_node(adnl::AdnlNodeIdShort node_id, td::IPAddress addr, bool is_validator = false) {
-    LOG(INFO) << "Manually connecting to node: " << node_id.bits256_value() << " at " << addr.get_ip_str();
-
-    // Создаем полный идентификатор узла
-    // Это упрощенный пример - в реальном коде нужно получить полный ключ
-    auto pubkey = ton::PublicKey(ton::pubkeys::Ed25519{node_id.bits256_value()});
-    auto full_id = ton::adnl::AdnlNodeIdFull{pubkey};
-
-    // Создаем список адресов
-    adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(addr);
-
-    // Добавляем пир в ADNL
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, node_id, full_id, addr_list);
-  }
-
  private:
   // Методы для прослушивания и подключения
-  void start_listening() {
-    LOG(INFO) << "Starting to listen for blocks...";
-
-    // Здесь должна быть логика подписки на получение блоков
-    // через оверлеи, ADNL и другие механизмы TON
-
-    // Временный код для тестирования - сгенерируем тестовый блок
-    if (monitored_overlays_.empty()) {
-      LOG(WARNING) << "No overlays to monitor yet, listening functionality limited";
-    }
-  }
-
-  void start_listening_overlay(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Starting to listen for overlay: " << overlay_id.bits256_value();
-
-    // Здесь должен быть код для подписки на сообщения от оверлея
-    // Реализация будет зависеть от конкретного API TON
-  }
-
-  void stop_listening() {
-    // Отписываемся от всех оверлеев
-    for (const auto& overlay_id : monitored_overlays_) {
-      LOG(INFO) << "Stopping listening for overlay: " << overlay_id.bits256_value();
-      // td::actor::send_closure(overlays_, &overlay::Overlays::remove_overlay, overlay_id, ...)
-    }
-  }
-
-  void check_connection_status() {
-    // Проверка статуса соединений и восстановление при необходимости
-    LOG(DEBUG) << "Checking connection status...";
-
-    // Можно проверить число полученных блоков за последнее время
-    // и предпринять меры если блоки не поступают
-  }
+  void start_listening();
+  void start_listening_overlay(overlay::OverlayIdShort overlay_id);
+  void stop_listening();
+  void check_connection_status();
 
   void track_block_received(BlockIdExt block_id, std::string source_id,
                             td::Timestamp received_at, size_t message_size,
                             std::string source_addr = "", double processing_time = 0.0) {
     block_tracker_->track_block_received(block_id, source_id, received_at, message_size,
                                          source_addr, processing_time);
+    last_block_received_at_ = td::Timestamp::now();
   }
 
   // Базовые поля
@@ -208,11 +156,17 @@ class ListenerHeadManager : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<dht::Dht> dht_;
+  td::actor::ActorId<ListenerConnectionManager> connection_manager_;
+  adnl::AdnlNodeIdShort local_id_;
 
   // Статистика
   std::atomic<size_t> blocks_received_{0};
   std::atomic<size_t> block_candidates_received_{0};
   std::atomic<size_t> shard_blocks_received_{0};
+  size_t last_blocks_received_count_{0};
+
+  // Время последнего полученного блока для проверки подключения
+  td::Timestamp last_block_received_at_;
 
   // Трекер блоков
   std::shared_ptr<BlockReceptionTracker> block_tracker_;

@@ -28,6 +28,11 @@ class ListenerConnectionManager : public td::actor::Actor {
       : adnl_(adnl), dht_(dht), overlays_(overlays) {
   }
 
+  // Установка локального ADNL ID
+  void set_local_id(adnl::AdnlNodeIdShort local_id) {
+    local_id_ = local_id;
+  }
+
   // Добавление пира для подключения
   void add_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator = false) {
     LOG(INFO) << "Adding peer " << peer_id.bits256_value()
@@ -75,7 +80,9 @@ class ListenerConnectionManager : public td::actor::Actor {
       result += "      \"ip\": \"" + p.second.addr.get_ip_str().str() + "\",\n";
       result += "      \"port\": " + std::to_string(p.second.addr.get_port()) + ",\n";
       result += "      \"is_validator\": " + std::string(p.second.is_validator ? "true" : "false") + ",\n";
-      result += "      \"last_connect\": " + std::to_string(p.second.last_connect_attempt.at()) + "\n";
+      result += "      \"last_connect\": " + std::to_string(p.second.last_connect_attempt.at()) + ",\n";
+      result += "      \"ping_success\": " + std::to_string(p.second.ping_success_count) + ",\n";
+      result += "      \"ping_fail\": " + std::to_string(p.second.ping_fail_count) + "\n";
       result += "    }";
       if (++i < peers_.size()) {
         result += ",";
@@ -92,23 +99,35 @@ class ListenerConnectionManager : public td::actor::Actor {
     return result;
   }
 
-  // Методы жизненного цикла актора
-  void start_up() override {
-    LOG(INFO) << "ListenerConnectionManager starting up...";
-    alarm_timestamp() = td::Timestamp::in(1.0);
-  }
+  // Поиск пиров в DHT
+  void discover_overlay_peers(overlay::OverlayIdShort overlay_id);
 
-  void alarm() override {
-    update_connections();
-    discover_new_peers();
-    alarm_timestamp() = td::Timestamp::in(60.0); // Проверка каждую минуту
-  }
+  // Поиск адреса узла через DHT
+  void lookup_peer_address(adnl::AdnlNodeIdShort peer_id);
+
+  // Поиск пиров через DHT для конкретного оверлея
+  void lookup_peers_via_dht(overlay::OverlayIdShort overlay_id);
+
+  // Обновление статуса пира (успешный или неуспешный пинг)
+  void update_peer_status(adnl::AdnlNodeIdShort peer_id, bool success);
+
+  // Создание пинг-запроса для проверки соединения
+  void create_ping_query(adnl::AdnlNodeIdShort peer_id);
+
+  // Очистка неактивных пиров
+  void gc_inactive_peers();
+
+  // Методы жизненного цикла актора
+  void start_up() override;
+  void alarm() override;
 
  private:
   struct PeerInfo {
     td::IPAddress addr;
     bool is_validator;
     td::Timestamp last_connect_attempt;
+    td::uint32 ping_success_count = 0;
+    td::uint32 ping_fail_count = 0;
 
     PeerInfo() : is_validator(false) {}
     PeerInfo(td::IPAddress addr, bool is_validator, td::Timestamp last_connect_attempt)
@@ -116,97 +135,16 @@ class ListenerConnectionManager : public td::actor::Actor {
   };
 
   // Обновление соединений - подключаемся к пирам согласно приоритетам
-  void update_connections() {
-    LOG(DEBUG) << "Updating connections...";
-
-    // Сначала подключаемся к валидаторам
-    for (auto& id : validators_) {
-      auto it = peers_.find(id);
-      if (it != peers_.end() && (td::Timestamp::now().at() - it->second.last_connect_attempt.at() >
-                                 NetworkConfig::CONNECTION_RESET_INTERVAL)) {
-        connect_to_peer(id, it->second.addr, true);
-        it->second.last_connect_attempt = td::Timestamp::now();
-      }
-    }
-
-    // Затем к остальным узлам
-    size_t current_connections = validators_.size();
-    for (auto& p : peers_) {
-      if (validators_.count(p.first) > 0) {
-        continue;
-      }
-
-      if (current_connections >= max_connections_) {
-        break;
-      }
-
-      if (td::Timestamp::now().at() - p.second.last_connect_attempt.at() >
-          NetworkConfig::CONNECTION_RESET_INTERVAL) {
-        connect_to_peer(p.first, p.second.addr, false);
-        p.second.last_connect_attempt = td::Timestamp::now();
-        current_connections++;
-      }
-    }
-  }
+  void update_connections();
 
   // Подключение к конкретному пиру
-  void connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator) {
-    LOG(INFO) << "Connecting to peer " << peer_id.bits256_value()
-              << " at " << addr.get_ip_str()
-              << (is_validator ? " (validator)" : "");
-
-    td::uint32 priority = is_validator ? NetworkConfig::VALIDATOR_PRIORITY : 0;
-
-    // Создаем список адресов для ADNL
-    adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(addr);
-
-    // Получаем полный идентификатор узла через DHT или другие механизмы
-    // Это упрощенная реализация - в реальности нужно получить полный ключ через DHT
-    auto pubkey_tl = ton::create_tl_object<ton::ton_api::pub_ed25519>(peer_id.bits256_value());
-    auto pubkey_ed25519 = ton::pubkeys::Ed25519{peer_id.bits256_value()};
-    auto pub_key = ton::PublicKey{pubkey_ed25519};
-    auto full_id = ton::adnl::AdnlNodeIdFull{pub_key};
-
-    // Добавляем пир в ADNL
-    td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, peer_id, full_id, addr_list);
-  }
+  void connect_to_peer(adnl::AdnlNodeIdShort peer_id, td::IPAddress addr, bool is_validator);
 
   // Поиск новых пиров через DHT для всех мониторимых оверлеев
-  void discover_new_peers() {
-    if (overlays_to_monitor_.empty()) {
-      return;
-    }
-
-    LOG(DEBUG) << "Discovering new peers...";
-
-    // Выбираем случайный оверлей для поиска пиров
-    size_t index = rand() % overlays_to_monitor_.size();
-    auto it = overlays_to_monitor_.begin();
-    std::advance(it, index);
-    auto overlay_id = *it;
-
-    LOG(INFO) << "Looking for peers in overlay " << overlay_id.bits256_value();
-    discover_overlay_peers(overlay_id);
-  }
-
-  // Поиск пиров для конкретного оверлея
-  void discover_overlay_peers(overlay::OverlayIdShort overlay_id) {
-    LOG(INFO) << "Discovering peers for overlay " << overlay_id.bits256_value();
-
-    // Здесь должен быть код для поиска пиров через DHT или другие механизмы TON
-    // В данной реализации это заглушка, реальную реализацию нужно доработать
-  }
-
-  // Поиск адреса узла через DHT или другие механизмы
-  void lookup_peer_address(adnl::AdnlNodeIdShort peer_id) {
-    LOG(INFO) << "Looking up address for peer " << peer_id.bits256_value();
-
-    // Здесь должен быть код для поиска адреса узла через DHT
-    // В данной реализации это заглушка, реальную реализацию нужно доработать
-  }
+  void discover_new_peers();
 
   // Поля класса
+  adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;

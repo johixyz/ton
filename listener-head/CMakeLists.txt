@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
 
 # Добавление исходников
 set(LISTENER_HEAD_SOURCE
-        listener-head-main.cpp
+        main.cpp
+        listener-head-manager-impl.cpp
+        listener-connection-manager-impl.cpp
 )
 
 # Добавление заголовочных файлов
@@ -19,14 +21,16 @@ add_executable(ton-listener-head ${LISTENER_HEAD_SOURCE} ${LISTENER_HEAD_HEADERS
 
 # Установка зависимостей
 target_link_libraries(ton-listener-head PUBLIC
-        tdactor
-        tdnet
-        tdutils
         adnl
-        rldp
-        dht
         tl_api
         overlay
+        dht
+        tdutils
+        tdactor
+        tl-utils
+        rldp
+        keyring
+        validator-disk
         http
 )
 

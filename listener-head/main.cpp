@@ -17,6 +17,7 @@
 #include "listener-connection-manager.hpp"
 #include "listener-http-server.hpp"
 #include "listener-head-config.hpp"
+#include "global-config-parser.cpp"
 
 #include <iostream>
 #include <string>
@@ -130,6 +131,20 @@ int main(int argc, char *argv[]) {
 
     LOG(INFO) << "Инициализация компонентов TON...";
 
+    // Загрузка и парсинг глобальной конфигурации
+    std::string global_config_data;
+    try {
+      auto res = td::read_file(global_config);
+      if (res.is_error()) {
+        LOG(ERROR) << "Ошибка при чтении глобального конфига: " << res.move_as_error();
+        return;
+      }
+      global_config_data = res.move_as_ok();
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "Ошибка при загрузке глобального конфига: " << e.what();
+      return;
+    }
+
     // Создаем базовые компоненты TON
     auto keyring = ton::keyring::Keyring::create(db_root + "/keyring");
 
@@ -148,35 +163,39 @@ int main(int argc, char *argv[]) {
     // Создаем ADNL
     auto adnl = ton::adnl::Adnl::create(db_root + "/adnl", keyring.get());
 
-    // Создаем глобальную конфигурацию DHT
-    std::string json_str = R"json({
-      "k": 6,
-      "a": 3,
-      "static_nodes": {
-        "@type": "dht.nodes",
-        "nodes": []
-      }
-    })json";
-    auto dht_config_json_result = td::json_decode(td::MutableSlice(json_str));
-    if (dht_config_json_result.is_error()) {
-      LOG(ERROR) << "Failed to parse DHT config JSON: " << dht_config_json_result.error().message();
+    // Получаем список статических узлов из глобальной конфигурации
+    auto static_nodes_r = ton::listener::GlobalConfigParser::parse_static_nodes(global_config_data);
+    if (static_nodes_r.is_error()) {
+      LOG(ERROR) << "Failed to parse static nodes: " << static_nodes_r.error();
       return;
     }
-    auto dht_config_json = dht_config_json_result.move_as_ok();
+    auto static_nodes = static_nodes_r.move_as_ok();
+    LOG(INFO) << "Parsed " << static_nodes.size() << " static nodes from global config";
+
+    // Извлекаем параметры DHT из глобальной конфигурации
+    auto json_parse_result = td::json_decode(global_config_data);
+    if (json_parse_result.is_error()) {
+      LOG(ERROR) << "Failed to parse global config JSON: " << json_parse_result.error();
+      return;
+    }
+    auto config_json = json_parse_result.move_as_ok();
 
     // Получаем значения k и a из JSON
     td::int32 k_value = 6;
     td::int32 a_value = 3;
 
-    for (const auto& kv : dht_config_json.get_object()) {
-      if (kv.first == "k") {
-        k_value = td::to_integer<td::int32>(kv.second.get_number());
-      } else if (kv.first == "a") {
-        a_value = td::to_integer<td::int32>(kv.second.get_number());
+    // Проверяем, есть ли раздел dht в глобальной конфигурации
+    if (config_json.has_key("dht")) {
+      auto dht_config = config_json.get_object_field("dht");
+      if (dht_config.has_key("k")) {
+        k_value = dht_config.get_number_field("k").value();
+      }
+      if (dht_config.has_key("a")) {
+        a_value = dht_config.get_number_field("a").value();
       }
     }
 
-    // Конвертируем в tl-объект
+    // Создаем конфигурацию DHT
     auto dht_config_tl = ton::create_tl_object<ton::ton_api::dht_config_global>(
         ton::create_tl_object<ton::ton_api::dht_nodes>(std::vector<ton::tl_object_ptr<ton::ton_api::dht_node>>()),
         k_value,
@@ -206,21 +225,67 @@ int main(int argc, char *argv[]) {
     LOG(INFO) << "Создание компонентов ListenerHead...";
 
     // Создаем компоненты ListenerHead
-    auto listener_manager = td::actor::create_actor<ton::listener::ListenerHeadManager>(
-        "listener-head", db_root, keyring.get(), adnl.get(), overlays.get(), dht.get()
-    );
-
     auto connection_manager = td::actor::create_actor<ton::listener::ListenerConnectionManager>(
         "connection-manager", adnl.get(), overlays.get(), dht.get()
     );
 
-    auto http_server = td::actor::create_actor<ton::listener::ListenerHttpServer>(
-        "http-server", http_port, listener_manager.get_actor_unsafe().get_block_tracker()
-    );
+    // Устанавливаем ADNL ID для ConnectionManager
+    td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::set_local_id, id);
 
     // Устанавливаем максимальное количество соединений из конфигурации
     td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::set_max_connections,
                             config.max_connections);
+
+    // Создаем ListenerHeadManager
+    auto listener_manager = td::actor::create_actor<ton::listener::ListenerHeadManager>(
+        "listener-head", db_root, keyring.get(), adnl.get(), overlays.get(), dht.get(), connection_manager.get()
+    );
+
+    // Устанавливаем локальный ADNL ID для ListenerHeadManager
+    td::actor::send_closure(listener_manager, &ton::listener::ListenerHeadManager::set_local_id, id);
+
+    // Добавляем известных валидаторов и статические узлы
+    for (const auto& node : static_nodes) {
+      LOG(INFO) << "Adding static node: " << node.to_string();
+      td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::add_peer,
+                              node.id_short, node.addr, true);
+    }
+
+    // Получаем оверлеи для мониторинга
+    auto default_overlays = ton::listener::GlobalConfigParser::extract_default_overlay_ids();
+    LOG(INFO) << "Extracted " << default_overlays.size() << " default overlay IDs";
+
+    // Добавляем оверлеи для мониторинга из конфигурации и дефолтные
+    for (const auto& overlay_id_str : config.overlay_ids) {
+      try {
+        // Преобразуем строку hex в OverlayIdShort
+        td::Bits256 bits = td::Bits256::zero();
+        if (td::hex_decode(overlay_id_str, bits.as_slice()).is_ok()) {
+          auto overlay_id = ton::overlay::OverlayIdShort{bits};
+          td::actor::send_closure(listener_manager, &ton::listener::ListenerHeadManager::add_overlay_to_listen, overlay_id);
+          td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::add_overlay, overlay_id);
+        } else {
+          LOG(ERROR) << "Invalid overlay ID in config: " << overlay_id_str;
+        }
+      } catch (const std::exception& e) {
+        LOG(ERROR) << "Error parsing overlay ID: " << e.what();
+      }
+    }
+
+    // Добавляем дефолтные оверлеи если в конфигурации ничего не указано
+    if (config.overlay_ids.empty()) {
+      for (const auto& overlay_id_full : default_overlays) {
+        auto overlay_id = overlay_id_full.compute_short_id();
+        LOG(INFO) << "Adding default overlay: " << overlay_id.bits256_value();
+        td::actor::send_closure(listener_manager, &ton::listener::ListenerHeadManager::add_overlay_to_listen, overlay_id);
+        td::actor::send_closure(connection_manager, &ton::listener::ListenerConnectionManager::add_overlay, overlay_id);
+      }
+    }
+
+    // Создаем HTTP сервер для API
+    auto http_server = td::actor::create_actor<ton::listener::ListenerHttpServer>(
+        "http-server", http_port, listener_manager.get_actor_unsafe().get_block_tracker()
+    );
 
     LOG(INFO) << "TON Listener Head успешно запущен на HTTP порту " << http_port;
     LOG(INFO) << "Веб-интерфейс доступен по адресу http://localhost:" << http_port;
