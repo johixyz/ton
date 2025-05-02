@@ -71,14 +71,15 @@ void ListenerHeadManager::start_listening() {
     // Создаем overlay ID для мастерчейна (блоки)
     auto masterchain_blocks = create_tl_object<ton_api::tonNode_blockIdExt>(
         ton::masterchainId, ton::shardIdAll, 0, td::Bits256::zero(), td::Bits256::zero());
-    auto masterchain_overlay_id = overlay::OverlayIdFull{adnl::AdnlNodeIdFull{
-        ton::PublicKey{ton::pubkeys::Ed25519{masterchain_blocks->root_hash_}}}};
+    auto masterchain_node_id_full = adnl::AdnlNodeIdFull{ton::PublicKey{ton::pubkeys::Ed25519{masterchain_blocks->root_hash_}}};
+    auto masterchain_overlay_id = overlay::OverlayIdFull{masterchain_node_id_full.pubkey().export_as_slice()};
 
     // Создаем overlay ID для базового воркчейна (блоки)
     auto basechain_blocks = create_tl_object<ton_api::tonNode_blockIdExt>(
         ton::basechainId, ton::shardIdAll, 0, td::Bits256::zero(), td::Bits256::zero());
-    auto basechain_overlay_id = overlay::OverlayIdFull{adnl::AdnlNodeIdFull{
-        ton::PublicKey{ton::pubkeys::Ed25519{basechain_blocks->root_hash_}}}};
+
+    auto basechain_node_id_full = adnl::AdnlNodeIdFull{ton::PublicKey{ton::pubkeys::Ed25519{masterchain_blocks->root_hash_}}};
+    auto basechain_overlay_id = overlay::OverlayIdFull{basechain_node_id_full.pubkey().export_as_slice()};
 
     // Подписываемся на оверлеи
     add_overlay_to_listen(masterchain_overlay_id.compute_short_id());
