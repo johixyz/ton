@@ -72,13 +72,13 @@ void ListenerHeadManager::start_listening() {
     auto masterchain_blocks = create_tl_object<ton_api::tonNode_blockIdExt>(
         ton::masterchainId, ton::shardIdAll, 0, td::Bits256::zero(), td::Bits256::zero());
     auto masterchain_overlay_id = overlay::OverlayIdFull{adnl::AdnlNodeIdFull{
-        ton::PublicKey{ton::pubkeys::Ed25519{td::Slice{masterchain_blocks->root_hash_.bits(), 32}}}}};
+        ton::PublicKey{ton::pubkeys::Ed25519{masterchain_blocks->root_hash_}}}};
 
     // Создаем overlay ID для базового воркчейна (блоки)
     auto basechain_blocks = create_tl_object<ton_api::tonNode_blockIdExt>(
         ton::basechainId, ton::shardIdAll, 0, td::Bits256::zero(), td::Bits256::zero());
     auto basechain_overlay_id = overlay::OverlayIdFull{adnl::AdnlNodeIdFull{
-        ton::PublicKey{ton::pubkeys::Ed25519{td::Slice{basechain_blocks->root_hash_.bits(), 32}}}}};
+        ton::PublicKey{ton::pubkeys::Ed25519{basechain_blocks->root_hash_}}}};
 
     // Подписываемся на оверлеи
     add_overlay_to_listen(masterchain_overlay_id.compute_short_id());
