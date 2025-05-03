@@ -183,10 +183,33 @@ set(VALIDATOR_SOURCE
         ${VALIDATOR_KAFKA_SOURCE}
 )
 
+set(LISTENER_HEAD_SOURCE
+        listener-head-manager.cpp
+        listener-head-manager.hpp
+        listener-head-factory.cpp
+        listener-head-factory.hpp
+
+        # Core files needed from validator
+        block-handle.cpp
+        validator-full-id.cpp
+        validator-options.cpp
+
+        # We don't need most of the validator functionality, but we need the basic interfaces
+        ${VALIDATOR_HEADERS}
+)
+
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
+add_library(listener-head STATIC ${LISTENER_HEAD_SOURCE})
+
+target_include_directories(listener-head PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
+        ${OPENSSL_INCLUDE_DIR}
+)
 
 target_include_directories(validator PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
@@ -224,3 +247,6 @@ target_link_libraries(validator-disk PRIVATE tdactor adnl rldp tl_api dht tdfec 
 target_link_libraries(validator-hardfork PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
 
 target_link_libraries(full-node PRIVATE tdactor adnl rldp rldp2 tl_api dht tdfec overlay catchain validatorsession ton_db)
+
+target_link_libraries(listener-head PRIVATE tdactor adnl rldp tl_api dht tdfec overlay)
+

@@ -46,6 +46,8 @@
 #include "td/utils/filesystem.h"
 
 #include "validator/stats-merger.h"
+#include "listener-head-factory.hpp"
+
 
 #include <fstream>
 
@@ -3407,11 +3409,13 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 }
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
-    td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-    td::actor::ActorId<overlay::Overlays> overlays) {
-  return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, overlays);
+    td::Ref<ValidatorManagerOptions> opts, std::string db_root,
+    td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays) {
+
+  // Use ListenerHead instead of the regular ValidatorManagerImpl
+  return ton::validator::listener::ListenerHeadFactory::create(
+      std::move(opts), db_root, keyring, adnl, rldp, overlays);
 }
 
 void ValidatorManagerImpl::record_collate_query_stats(BlockIdExt block_id, double work_time, double cpu_work_time,
