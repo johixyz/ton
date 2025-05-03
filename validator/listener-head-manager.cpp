@@ -152,7 +152,7 @@ void ListenerHeadManager::prevalidate_block(BlockBroadcast broadcast, td::Promis
   adnl::AdnlNodeIdShort source; // Default initialization
   if (!broadcast.signatures.empty()) {
     // Create from bits256 value instead of direct assignment
-    source = adnl::AdnlNodeIdShort{broadcast.signatures[0].node.bits256_value()};
+    source = adnl::AdnlNodeIdShort{broadcast.signatures[0].node};
   }
 
   record_block_reception(broadcast.block_id, source, broadcast.data.clone());
