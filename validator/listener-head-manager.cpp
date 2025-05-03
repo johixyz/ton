@@ -149,10 +149,12 @@ void ListenerHeadManager::prevalidate_block(BlockBroadcast broadcast, td::Promis
   LOG(INFO) << "Received block broadcast: " << broadcast.block_id;
 
   // Record reception with timing
-  adnl::AdnlNodeIdShort source;
+  adnl::AdnlNodeIdShort source; // Default initialization
   if (!broadcast.signatures.empty()) {
-    source = broadcast.signatures[0].node;
+    // Create from bits256 value instead of direct assignment
+    source = adnl::AdnlNodeIdShort{broadcast.signatures[0].node.bits256_value()};
   }
+
   record_block_reception(broadcast.block_id, source, broadcast.data.clone());
 
   // Forward to other systems if needed
@@ -186,7 +188,7 @@ void ListenerHeadManager::record_block_reception(BlockIdExt block_id, adnl::Adnl
   auto now_ms = static_cast<td::uint64>(td::Timestamp::now().at() * 1000);
 
   // Create reception info
-  BlockReceptionInfo info(block_id, now_ms, source, data.size());
+  BlockReceptionInfo info(block_id, now_ms, source, static_cast<td::uint32>(data.size()));
 
   // Store reception information
   received_blocks_[block_id] = info;
@@ -271,7 +273,8 @@ void ListenerHeadManager::get_top_masterchain_state(td::Promise<td::Ref<Masterch
 
 void ListenerHeadManager::get_top_masterchain_block(td::Promise<BlockIdExt> promise) {
   if (last_masterchain_block_id_.is_valid()) {
-    promise.set_value(last_masterchain_block_id_);
+    // Use a copy or std::move
+    promise.set_value(std::move(last_masterchain_block_id_));
   } else {
     promise.set_error(td::Status::Error(ErrorCode::notready, "no masterchain blocks received yet"));
   }
