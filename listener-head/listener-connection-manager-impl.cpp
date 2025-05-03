@@ -193,7 +193,7 @@ void ListenerConnectionManager::create_ping_query(adnl::AdnlNodeIdShort peer_id)
 
   // Отправляем пинг через ADNL
   td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::send_query, local_id_, peer_id, "", std::move(P),
-                          td::Timestamp::in(2.0), serialize_tl_object(query, true), td::Random::fast(65536));
+                          td::Timestamp::in(2.0), serialize_tl_object(query, true), td::Random::fast_uint32() % 65536);
 }
 
 void ListenerConnectionManager::update_peer_status(adnl::AdnlNodeIdShort peer_id, bool success) {
