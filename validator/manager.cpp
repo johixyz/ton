@@ -193,6 +193,10 @@ void ValidatorManagerImpl::validate_block_proof_rel(BlockIdExt block_id, BlockId
 
 void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   auto blkid = block.id;
+
+  // Publish to Kafka before validation
+  publish_unvalidated_block_to_kafka(blkid, block.data);
+
   auto pp = create_block(std::move(block));
   if (pp.is_error()) {
     promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create block for " << blkid << ": "));
@@ -218,8 +222,6 @@ void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promi
   }
 
   VLOG(VALIDATOR_DEBUG) << "prevalidate block " << broadcast.block_id << " " << broadcast.catchain_seqno;
-
-  publish_unvalidated_block_to_kafka(broadcast);
 
   if (!need_monitor(broadcast.block_id.shard_full())) {
     promise.set_error(td::Status::Error("not monitoring shard"));
@@ -3397,9 +3399,9 @@ void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<Sh
   }
 }
 
-void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(const BlockBroadcast& broadcast) {
+void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(BlockIdExt block_id, const td::BufferSlice& data) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
-    kafka_publisher_->publish_unvalidated_block(broadcast);
+    kafka_publisher_->publish_unvalidated_block(block_id, data);
   }
 }
 

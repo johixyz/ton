@@ -340,7 +340,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void completed_prestart_sync();
 
   void publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state);
-  void publish_unvalidated_block_to_kafka(const BlockBroadcast& broadcast);
+  void publish_unvalidated_block_to_kafka(BlockIdExt block_id, const td::BufferSlice& data);
 
 
  public:

@@ -19,7 +19,7 @@ class KafkaPublisher {
   
   // Publishes block information to Kafka
   void publish_block(BlockHandle handle, td::Ref<ShardState> state);
-  void publish_unvalidated_block(const BlockBroadcast& broadcast); // Add this method
+  void publish_unvalidated_block(BlockIdExt block_id, const td::BufferSlice& data); // Add this method
 
 
   
