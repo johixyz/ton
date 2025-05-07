@@ -109,7 +109,7 @@ void KafkaPublisher::publish_block(BlockHandle handle, td::Ref<ShardState> state
   rd_kafka_poll(producer_, 0);
 }
 
-void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, CatchainSeqno cc_seqno, const td::BufferSlice& data) {
+void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, const td::BufferSlice& data) {
   if (!is_initialized()) {
     log_error("Kafka publisher not properly initialized");
     return;
@@ -126,7 +126,6 @@ void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, CatchainSeqn
   json("seqno", static_cast<td::int32>(block_id.id.seqno));
   json("root_hash", td::base64_encode(block_id.root_hash.as_slice()));
   json("file_hash", td::base64_encode(block_id.file_hash.as_slice()));
-  json("catchain_seqno", static_cast<td::int32>(cc_seqno));
   json("data_size", static_cast<td::int32>(data.size()));
   json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
 

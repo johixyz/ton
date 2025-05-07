@@ -489,8 +489,6 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  publish_unvalidated_block_to_kafka(block_id, cc_seqno, data);
-
 
   if (!is_validator() && !cached_block_candidates_.count(block_id)) {
     return;
@@ -519,6 +517,8 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
 }
 
 void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSlice data) {
+  publish_unvalidated_block_to_kafka(block_id, data);
+
   if (!last_masterchain_block_handle_) {
     VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
     return;
@@ -3394,9 +3394,9 @@ void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<Sh
   }
 }
 
-void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(BlockIdExt block_id, CatchainSeqno cc_seqno, const td::BufferSlice& data) {
+void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(BlockIdExt block_id, const td::BufferSlice& data) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
-    kafka_publisher_->publish_unvalidated_block(block_id, cc_seqno, data);
+    kafka_publisher_->publish_unvalidated_block(block_id, data);
   }
 }
 
