@@ -823,6 +823,8 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
+  VLOG(FULL_NODE_DEBUG) << "Got tonNode.broadcast from " << src << "is active=" << active_ << " broadcast size="
+                        << broadcast.size();
   if (!active_) {
     return;
   }
