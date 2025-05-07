@@ -194,7 +194,7 @@ void ValidatorManagerImpl::validate_block_proof_rel(BlockIdExt block_id, BlockId
 void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   auto blkid = block.id;
 
-  VLOG(VALIDATOR_DEBUG) << "validate block " << blkid << " " << block.catchain_seqno;
+  VLOG(VALIDATOR_DEBUG) << "validate block " << blkid;
 
   // Publish to Kafka before validation
   publish_unvalidated_block_to_kafka(blkid, block.data);
