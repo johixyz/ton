@@ -110,43 +110,44 @@ void KafkaPublisher::publish_block(BlockHandle handle, td::Ref<ShardState> state
 }
 
 void KafkaPublisher::publish_unvalidated_block(const BlockBroadcast& broadcast) {
-  // Create JSON object for Kafka
   td::JsonBuilder jb;
-  {
-    auto json_obj = jb.enter_object();
+  auto json = jb.enter_object();
 
-    // Add block_id information
-    auto block_id_obj = json_obj.enter_object("block_id");
-    block_id_obj.add_field("workchain", broadcast.block_id.id.workchain);
-    block_id_obj.add_field("shard", td::to_string(broadcast.block_id.id.shard));
-    block_id_obj.add_field("seqno", broadcast.block_id.id.seqno);
+  // Block identification
+  json("block_id", broadcast.block_id.to_str());
+  json("workchain", static_cast<td::int32>(broadcast.block_id.id.workchain));
+  json("shard", td::to_string(broadcast.block_id.id.shard));
+  json("seqno", static_cast<td::int32>(broadcast.block_id.id.seqno));
+  json("root_hash", td::base64_encode(broadcast.block_id.root_hash.as_slice()));
+  json("file_hash", td::base64_encode(broadcast.block_id.file_hash.as_slice()));
 
-    // Using as_slice() as in the previous implementation
-    block_id_obj.add_field("root_hash", td::base64_encode(broadcast.block_id.root_hash.as_slice()));
-    block_id_obj.add_field("file_hash", td::base64_encode(broadcast.block_id.file_hash.as_slice()));
-    block_id_obj.leave();
+  // Broadcast metadata
+  json("catchain_seqno", static_cast<td::int32>(broadcast.catchain_seqno));
+  json("validator_set_hash", static_cast<td::int32>(broadcast.validator_set_hash));
+  json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
+  json("is_validated", 0);  // 0 = false
 
-    // The rest of the implementation remains the same
-    json_obj.add_field("catchain_seqno", broadcast.catchain_seqno);
-    json_obj.add_field("validator_set_hash", broadcast.validator_set_hash);
-    json_obj.add_field("received_timestamp", td::Clocks::system());
-    json_obj.add_field("is_validated", false);
+  // Signatures
+  if (!broadcast.signatures.empty()) {
+    td::JsonBuilder sigs_jb;
+    auto sigs_json = sigs_jb.enter_array();
 
-    // For signatures - need to check how to properly encode node as well
-    auto signatures_array = json_obj.enter_array("signatures");
     for (const auto& sig : broadcast.signatures) {
-      auto sig_obj = signatures_array.enter_object();
-      // Use as_slice() for consistency
-      sig_obj.add_field("node", td::base64_encode(sig.node.as_slice()));
-      sig_obj.add_field("signature", td::base64_encode(sig.signature.as_slice()));
-      sig_obj.leave();
+      auto sig_obj = sigs_json.enter_object();
+      sig_obj("node", td::base64_encode(sig.node.as_slice()));
+      sig_obj("signature", td::base64_encode(sig.signature.as_slice()));
     }
-    signatures_array.leave();
 
-    json_obj.add_field("data", td::base64_encode(broadcast.data.as_slice()));
-    json_obj.add_field("proof", td::base64_encode(broadcast.proof.as_slice()));
+    json("signatures", td::JsonRaw(sigs_jb.string_builder().as_cslice()));
+  }
 
-    json_obj.leave();
+  // Data and proof - base64 encoded
+  json("data_size", static_cast<td::int32>(broadcast.data.size()));
+  json("data", td::base64_encode(broadcast.data.as_slice()));
+
+  if (!broadcast.proof.empty()) {
+    json("proof_size", static_cast<td::int32>(broadcast.proof.size()));
+    json("proof", td::base64_encode(broadcast.proof.as_slice()));
   }
 
   std::string json_string = jb.string_builder().as_cslice().str();
