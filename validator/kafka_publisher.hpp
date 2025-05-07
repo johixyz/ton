@@ -14,7 +14,7 @@ namespace validator {
 
 class KafkaPublisher {
  public:
-  KafkaPublisher(std::string brokers, std::string blocks_topic);
+  KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name);
   ~KafkaPublisher();
   
   // Publishes block information to Kafka
