@@ -254,6 +254,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 }
 
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
+  VLOG(FULL_NODE_INFO) << "Updating shard actor for shard " << shard << ", active = " << active;
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
     info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, keyring_, adnl_, rldp_,
