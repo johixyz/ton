@@ -95,7 +95,7 @@ class FullNodeImpl : public FullNode {
 
   void set_validator_telemetry_filename(std::string value) override;
 
-  void force_activate_all_shards() override;
+  void force_activate_all_shards();
 
   void start_up() override;
 
