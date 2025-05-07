@@ -692,6 +692,17 @@ void FullNodeImpl::start_up() {
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
+
+  td::actor::send_closure(full_node_, &FullNodeImpl::force_activate_all_shards);
+
+}
+
+void FullNodeImpl::force_activate_all_shards() {
+  for (auto &shard : shards_) {
+    if (!shard.second.actor.empty()) {
+      update_shard_actor(shard.first, true);
+    }
+  }
 }
 
 void FullNodeImpl::update_private_overlays() {

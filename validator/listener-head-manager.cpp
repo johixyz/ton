@@ -137,9 +137,6 @@ void ListenerHeadManager::validate_block(ReceivedBlock block, td::Promise<BlockH
   // Create a minimal handle without validation
   auto handle = create_or_get_handle(block.id);
 
-  // Forward to other systems if configured
-  forward_block_to_callback(block.id, 0, block.data.clone());
-
   // Return handle to caller
   promise.set_value(std::move(handle));
 }
@@ -157,9 +154,6 @@ void ListenerHeadManager::prevalidate_block(BlockBroadcast broadcast, td::Promis
 
   record_block_reception(broadcast.block_id, source, broadcast.data.clone());
 
-  // Forward to other systems if needed
-  forward_block_to_callback(broadcast.block_id, broadcast.catchain_seqno, broadcast.data.clone());
-
   // Always succeed - no validation
   promise.set_value(td::Unit());
 }
@@ -169,9 +163,6 @@ void ListenerHeadManager::new_block_candidate(BlockIdExt block_id, td::BufferSli
 
   // Record reception
   record_block_reception(block_id, adnl::AdnlNodeIdShort(), data.clone());
-
-  // Forward to other systems if needed
-  forward_block_to_callback(block_id, 0, std::move(data));
 }
 
 void ListenerHeadManager::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -180,8 +171,7 @@ void ListenerHeadManager::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_
   // Record reception
   record_block_reception(block_id, adnl::AdnlNodeIdShort(), data.clone());
 
-  // Forward to other systems if needed
-  forward_block_to_callback(block_id, cc_seqno, std::move(data));
+  td::actor::send_closure(full_node_, &FullNodeImpl::force_activate_all_shards);
 }
 
 void ListenerHeadManager::record_block_reception(BlockIdExt block_id, adnl::AdnlNodeIdShort source, td::BufferSlice data) {
