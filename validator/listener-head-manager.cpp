@@ -171,7 +171,6 @@ void ListenerHeadManager::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_
   // Record reception
   record_block_reception(block_id, adnl::AdnlNodeIdShort(), data.clone());
 
-  td::actor::send_closure(full_node_, &FullNodeImpl::force_activate_all_shards);
 }
 
 void ListenerHeadManager::record_block_reception(BlockIdExt block_id, adnl::AdnlNodeIdShort source, td::BufferSlice data) {

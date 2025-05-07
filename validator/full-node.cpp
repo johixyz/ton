@@ -693,7 +693,7 @@ void FullNodeImpl::start_up() {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
 
-  td::actor::send_closure(full_node_, &FullNodeImpl::force_activate_all_shards);
+  td::actor::send_closure(actor_id(this), &FullNodeImpl::force_activate_all_shards);
 
 }
 
