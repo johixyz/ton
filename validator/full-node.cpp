@@ -602,6 +602,7 @@ void FullNodeImpl::update_validator_telemetry_collector() {
 
 void FullNodeImpl::start_up() {
   update_shard_actor(ShardIdFull{masterchainId}, true);
+  update_shard_actor(ShardIdFull{basechainId, shardIdAll}, true);
   if (local_id_.is_zero()) {
     if (adnl_id_.is_zero()) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -693,8 +694,6 @@ void FullNodeImpl::start_up() {
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
-
-  td::actor::send_closure(actor_id(this), &FullNodeImpl::force_activate_all_shards);
 
 }
 
