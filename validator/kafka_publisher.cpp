@@ -127,20 +127,6 @@ void KafkaPublisher::publish_unvalidated_block(const BlockBroadcast& broadcast) 
   json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
   json("is_validated", 0);  // 0 = false
 
-  // Signatures
-  if (!broadcast.signatures.empty()) {
-    td::JsonBuilder sigs_jb;
-    auto sigs_json = sigs_jb.enter_array();
-
-    for (const auto& sig : broadcast.signatures) {
-      auto sig_obj = sigs_json.enter_object();
-      sig_obj("node", td::base64_encode(sig.node.as_slice()));
-      sig_obj("signature", td::base64_encode(sig.signature.as_slice()));
-    }
-
-    json("signatures", td::JsonRaw(sigs_jb.string_builder().as_cslice()));
-  }
-
   // Data and proof - base64 encoded
   json("data_size", static_cast<td::int32>(broadcast.data.size()));
   json("data", td::base64_encode(broadcast.data.as_slice()));
@@ -153,7 +139,25 @@ void KafkaPublisher::publish_unvalidated_block(const BlockBroadcast& broadcast) 
   std::string json_string = jb.string_builder().as_cslice().str();
 
   // Publish to Kafka
-  produce_message(blocks_topic_, broadcast.block_id.id.to_str(), json_string);
+  int result = rd_kafka_produce(
+      unvalidated_blocks_topic_,    // Topic
+      RD_KAFKA_PARTITION_UA,        // Use default partitioner
+      RD_KAFKA_MSG_F_COPY,          // Make a copy of the payload
+      const_cast<char*>(json_string.data()), // Payload
+      json_string.size(),           // Payload size
+      nullptr,                      // Optional key
+      0,                            // Key size
+      nullptr                       // Message opaque
+  );
+
+  if (result == -1) {
+  log_error("Failed to produce unvalidated block message: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
+  return;
+  }
+
+  // Poll to handle delivery reports
+
+  rd_kafka_poll(producer_, 0);
 }
 
 
