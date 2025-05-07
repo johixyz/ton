@@ -48,12 +48,27 @@ KafkaPublisher::KafkaPublisher(std::string brokers, std::string blocks_topic_nam
     return;
   }
 
+  // Create unvalidated blocks topic
+  unvalidated_blocks_topic_ = rd_kafka_topic_new(producer_, unvalidated_blocks_topic_name_.c_str(), nullptr);
+  if (!unvalidated_blocks_topic_) {
+    LOG(ERROR) << "Failed to create unvalidated blocks topic: " << rd_kafka_err2str(rd_kafka_last_error());
+    rd_kafka_topic_destroy(blocks_topic_);
+    rd_kafka_destroy(producer_);
+    producer_ = nullptr;
+    blocks_topic_ = nullptr;
+    return;
+  }
+
   LOG(INFO) << "Kafka publisher initialized successfully for topic: " << blocks_topic_name_;
 }
 
 KafkaPublisher::~KafkaPublisher() {
   if (blocks_topic_) {
     rd_kafka_topic_destroy(blocks_topic_);
+  }
+
+  if (unvalidated_blocks_topic_) {
+    rd_kafka_topic_destroy(unvalidated_blocks_topic_);
   }
 
   if (producer_) {
@@ -92,6 +107,51 @@ void KafkaPublisher::publish_block(BlockHandle handle, td::Ref<ShardState> state
   // Poll to handle delivery reports
   rd_kafka_poll(producer_, 0);
 }
+
+void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, CatchainSeqno cc_seqno, const td::BufferSlice& data) {
+  if (!is_initialized()) {
+    log_error("Kafka publisher not properly initialized");
+    return;
+  }
+
+  // Serialize block data to JSON
+  td::JsonBuilder jb;
+  auto json = jb.enter_object();
+
+  // Block identification
+  json("block_id", block_id.to_str());
+  json("workchain", static_cast<td::int32>(block_id.id.workchain));
+  json("shard", td::to_string(block_id.id.shard));
+  json("seqno", static_cast<td::int32>(block_id.id.seqno));
+  json("root_hash", td::base64_encode(block_id.root_hash.as_slice()));
+  json("file_hash", td::base64_encode(block_id.file_hash.as_slice()));
+  json("catchain_seqno", static_cast<td::int32>(cc_seqno));
+  json("data_size", static_cast<td::int32>(data.size()));
+  json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
+
+  std::string message = jb.string_builder().as_cslice().str();
+
+  // Publish to Kafka
+  int result = rd_kafka_produce(
+      unvalidated_blocks_topic_,      // Topic
+      RD_KAFKA_PARTITION_UA,          // Use default partitioner
+      RD_KAFKA_MSG_F_COPY,            // Make a copy of the payload
+      const_cast<char*>(message.data()), // Payload
+      message.size(),                 // Payload size
+      nullptr,                        // Optional key
+      0,                              // Key size
+      nullptr                         // Message opaque
+  );
+
+  if (result == -1) {
+    log_error("Failed to produce unvalidated block message: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
+    return;
+  }
+
+  // Poll to handle delivery reports
+  rd_kafka_poll(producer_, 0);
+}
+
 
 std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardState> state) {
   td::JsonBuilder jb;

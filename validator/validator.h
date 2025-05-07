@@ -153,10 +153,12 @@ struct ValidatorManagerOptions : public td::CntObject {
 
   virtual std::string get_kafka_brokers() const = 0;
   virtual std::string get_kafka_blocks_topic() const = 0;
+  virtual std::string get_kafka_unvalidated_blocks_topic() const = 0;
   virtual bool get_kafka_enabled() const = 0;
 
   virtual void set_kafka_brokers(std::string brokers) = 0;
   virtual void set_kafka_blocks_topic(std::string topic) = 0;
+  virtual void set_kafka_unvalidated_blocks_topic(std::string topic) = 0;
   virtual void set_kafka_enabled(bool enabled) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(

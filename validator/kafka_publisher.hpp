@@ -19,6 +19,9 @@ class KafkaPublisher {
   
   // Publishes block information to Kafka
   void publish_block(BlockHandle handle, td::Ref<ShardState> state);
+  void publish_unvalidated_block(BlockIdExt block_id, CatchainSeqno cc_seqno, const td::BufferSlice& data); // Add this method
+
+
   
   // Checks if the publisher is properly initialized
   bool is_initialized() const { return producer_ != nullptr && blocks_topic_ != nullptr; }
@@ -29,10 +32,12 @@ class KafkaPublisher {
   
   // Kafka topic for blocks
   rd_kafka_topic_t* blocks_topic_{nullptr};
+  rd_kafka_topic_t* unvalidated_blocks_topic_{nullptr};
   
   // Topic name
   std::string blocks_topic_name_;
-  
+  std::string unvalidated_blocks_topic_name_;
+
   // Serializes block data to JSON format
   std::string serialize_block(BlockHandle handle, td::Ref<ShardState> state);
   

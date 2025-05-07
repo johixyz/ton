@@ -489,6 +489,9 @@ void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
 }
 
 void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
+  publish_unvalidated_block_to_kafka(block_id, cc_seqno, data);
+
+
   if (!is_validator() && !cached_block_candidates_.count(block_id)) {
     return;
   }
@@ -1737,7 +1740,7 @@ void ValidatorManagerImpl::start_up() {
   std::string kafka_brokers = opts_->get_kafka_brokers();
   if (opts_->get_kafka_enabled() && !kafka_brokers.empty()) {
     kafka_publisher_ = std::make_unique<KafkaPublisher>(
-        kafka_brokers, opts_->get_kafka_blocks_topic());
+        kafka_brokers, opts_->get_kafka_blocks_topic(), opts_->get_kafka_unvalidated_blocks_topic());
   }
 
   check_waiters_at_ = td::Timestamp::in(1.0);
@@ -3388,6 +3391,12 @@ void ValidatorManagerImpl::got_persistent_state_descriptions(std::vector<td::Ref
 void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<ShardState> state) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
     kafka_publisher_->publish_block(handle, state);
+  }
+}
+
+void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(BlockIdExt block_id, CatchainSeqno cc_seqno, const td::BufferSlice& data) {
+  if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
+    kafka_publisher_->publish_unvalidated_block(block_id, cc_seqno, data);
   }
 }
 

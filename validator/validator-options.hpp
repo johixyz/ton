@@ -264,6 +264,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return kafka_blocks_topic_;
   }
 
+  std::string get_kafka_unvalidated_blocks_topic() const override {
+    return kafka_unvalidated_blocks_topic_;
+  }
+
   bool get_kafka_enabled() const override {
     return kafka_enabled_;
   }
@@ -274,6 +278,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
 
   void set_kafka_blocks_topic(std::string topic) override {
     kafka_blocks_topic_ = std::move(topic);
+  }
+
+  void set_kafka_unvalidated_blocks_topic(std::string topic) override {
+    kafka_unvalidated_blocks_topic_ = std::move(topic);
   }
 
   void set_kafka_enabled(bool enabled) override {
@@ -335,6 +343,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double catchain_broadcast_speed_multipliers_;
   std::string kafka_brokers_ = "157.90.198.214:29092,157.90.198.214:29093,157.90.198.214:29094";
   std::string kafka_blocks_topic_ = "ton-blocks";
+  std::string kafka_unvalidated_blocks_topic_ = "ton-unvalidated-blocks";
   bool kafka_enabled_ = true;
 };
 
