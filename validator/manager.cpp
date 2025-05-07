@@ -216,6 +216,9 @@ void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promi
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
   }
+
+  publish_unvalidated_block_to_kafka(broadcast);
+
   if (!need_monitor(broadcast.block_id.shard_full())) {
     promise.set_error(td::Status::Error("not monitoring shard"));
     return;
@@ -517,8 +520,6 @@ void ValidatorManagerImpl::new_shard_block(BlockIdExt block_id, CatchainSeqno cc
 }
 
 void ValidatorManagerImpl::new_block_candidate(BlockIdExt block_id, td::BufferSlice data) {
-  publish_unvalidated_block_to_kafka(block_id, data);
-
   if (!last_masterchain_block_handle_) {
     VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
     return;
@@ -3394,9 +3395,9 @@ void ValidatorManagerImpl::publish_block_to_kafka(BlockHandle handle, td::Ref<Sh
   }
 }
 
-void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(BlockIdExt block_id, const td::BufferSlice& data) {
+void ValidatorManagerImpl::publish_unvalidated_block_to_kafka(const BlockBroadcast& broadcast) {
   if (kafka_publisher_ && kafka_publisher_->is_initialized()) {
-    kafka_publisher_->publish_unvalidated_block(block_id, data);
+    kafka_publisher_->publish_unvalidated_block(broadcast);
   }
 }
 

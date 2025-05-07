@@ -109,47 +109,50 @@ void KafkaPublisher::publish_block(BlockHandle handle, td::Ref<ShardState> state
   rd_kafka_poll(producer_, 0);
 }
 
-void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, const td::BufferSlice& data) {
-  if (!is_initialized()) {
-    log_error("Kafka publisher not properly initialized");
-    return;
+void KafkaPublisher::publish_unvalidated_block(const BlockBroadcast& broadcast) {
+  // Create JSON object for Kafka
+  td::JsonBuilder jb;
+  {
+    auto json_obj = jb.enter_object();
+
+    // Add block_id information
+    auto block_id_obj = json_obj.enter_object("block_id");
+    block_id_obj.add_field("workchain", broadcast.block_id.id.workchain);
+    block_id_obj.add_field("shard", td::to_string(broadcast.block_id.id.shard));
+    block_id_obj.add_field("seqno", broadcast.block_id.id.seqno);
+
+    // Using as_slice() as in the previous implementation
+    block_id_obj.add_field("root_hash", td::base64_encode(broadcast.block_id.root_hash.as_slice()));
+    block_id_obj.add_field("file_hash", td::base64_encode(broadcast.block_id.file_hash.as_slice()));
+    block_id_obj.leave();
+
+    // The rest of the implementation remains the same
+    json_obj.add_field("catchain_seqno", broadcast.catchain_seqno);
+    json_obj.add_field("validator_set_hash", broadcast.validator_set_hash);
+    json_obj.add_field("received_timestamp", td::Clocks::system());
+    json_obj.add_field("is_validated", false);
+
+    // For signatures - need to check how to properly encode node as well
+    auto signatures_array = json_obj.enter_array("signatures");
+    for (const auto& sig : broadcast.signatures) {
+      auto sig_obj = signatures_array.enter_object();
+      // Use as_slice() for consistency
+      sig_obj.add_field("node", td::base64_encode(sig.node.as_slice()));
+      sig_obj.add_field("signature", td::base64_encode(sig.signature.as_slice()));
+      sig_obj.leave();
+    }
+    signatures_array.leave();
+
+    json_obj.add_field("data", td::base64_encode(broadcast.data.as_slice()));
+    json_obj.add_field("proof", td::base64_encode(broadcast.proof.as_slice()));
+
+    json_obj.leave();
   }
 
-  // Serialize block data to JSON
-  td::JsonBuilder jb;
-  auto json = jb.enter_object();
-
-  // Block identification
-  json("block_id", block_id.to_str());
-  json("workchain", static_cast<td::int32>(block_id.id.workchain));
-  json("shard", td::to_string(block_id.id.shard));
-  json("seqno", static_cast<td::int32>(block_id.id.seqno));
-  json("root_hash", td::base64_encode(block_id.root_hash.as_slice()));
-  json("file_hash", td::base64_encode(block_id.file_hash.as_slice()));
-  json("data_size", static_cast<td::int32>(data.size()));
-  json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
-
-  std::string message = jb.string_builder().as_cslice().str();
+  std::string json_string = jb.string_builder().as_cslice().str();
 
   // Publish to Kafka
-  int result = rd_kafka_produce(
-      unvalidated_blocks_topic_,      // Topic
-      RD_KAFKA_PARTITION_UA,          // Use default partitioner
-      RD_KAFKA_MSG_F_COPY,            // Make a copy of the payload
-      const_cast<char*>(message.data()), // Payload
-      message.size(),                 // Payload size
-      nullptr,                        // Optional key
-      0,                              // Key size
-      nullptr                         // Message opaque
-  );
-
-  if (result == -1) {
-    log_error("Failed to produce unvalidated block message: " + std::string(rd_kafka_err2str(rd_kafka_last_error())));
-    return;
-  }
-
-  // Poll to handle delivery reports
-  rd_kafka_poll(producer_, 0);
+  produce_message(blocks_topic_, broadcast.block_id.id.to_str(), json_string);
 }
 
 
