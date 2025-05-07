@@ -217,6 +217,8 @@ void ValidatorManagerImpl::prevalidate_block(BlockBroadcast broadcast, td::Promi
     return;
   }
 
+  VLOG(VALIDATOR_DEBUG) << "prevalidate block " << broadcast.block_id << " " << broadcast.catchain_seqno;
+
   publish_unvalidated_block_to_kafka(broadcast);
 
   if (!need_monitor(broadcast.block_id.shard_full())) {
