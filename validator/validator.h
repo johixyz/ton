@@ -161,6 +161,10 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_kafka_unvalidated_blocks_topic(std::string topic) = 0;
   virtual void set_kafka_enabled(bool enabled) = 0;
 
+  virtual const std::string& get_node_id() const = 0;
+  virtual void set_node_id(std::string node_id) = 0;
+
+
   static td::Ref<ValidatorManagerOptions> create(
       BlockIdExt zero_block_id, BlockIdExt init_block_id,
 

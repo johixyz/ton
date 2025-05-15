@@ -1747,7 +1747,7 @@ void ValidatorManagerImpl::start_up() {
   std::string kafka_brokers = opts_->get_kafka_brokers();
   if (opts_->get_kafka_enabled() && !kafka_brokers.empty()) {
     kafka_publisher_ = std::make_unique<KafkaPublisher>(
-        kafka_brokers, opts_->get_kafka_blocks_topic(), opts_->get_kafka_unvalidated_blocks_topic());
+        kafka_brokers, opts_->get_kafka_blocks_topic(), opts_->get_kafka_unvalidated_blocks_topic(), opts_->get_node_id());
   }
 
   check_waiters_at_ = td::Timestamp::in(1.0);

@@ -280,6 +280,14 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     kafka_blocks_topic_ = std::move(topic);
   }
 
+  const std::string& get_node_id() const override {
+    return node_id_;
+  }
+
+  void set_node_id(std::string node_id) override {
+    node_id_ = std::move(node_id);
+  }
+
   void set_kafka_unvalidated_blocks_topic(std::string topic) override {
     kafka_unvalidated_blocks_topic_ = std::move(topic);
   }
@@ -295,7 +303,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                               std::function<bool(ShardIdFull)> check_shard, bool allow_blockchain_init,
                               double sync_blocks_before, double block_ttl, double state_ttl, double max_mempool_num,
-                              double archive_ttl, double key_proof_ttl, bool initial_sync_disabled)
+                              double archive_ttl, double key_proof_ttl, bool initial_sync_disabled, std::string node_id = "")
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
       , check_shard_(std::move(check_shard))
@@ -306,7 +314,8 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
       , max_mempool_num_(max_mempool_num)
       , archive_ttl_(archive_ttl)
       , key_proof_ttl_(key_proof_ttl)
-      , initial_sync_disabled_(initial_sync_disabled) {
+      , initial_sync_disabled_(initial_sync_disabled)
+      , node_id_(std::move(node_id)) {
   }
 
  private:
@@ -345,6 +354,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string kafka_blocks_topic_ = "ton-blocks";
   std::string kafka_unvalidated_blocks_topic_ = "ton-unvalidated-blocks";
   bool kafka_enabled_ = true;
+  std::string node_id_;
 };
 
 }  // namespace validator

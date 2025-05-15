@@ -13,7 +13,8 @@ static void kafka_logger(const rd_kafka_t* rk, int level, const char* fac, const
 
 KafkaPublisher::KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name)
     : blocks_topic_name_(std::move(blocks_topic_name)),
-    unvalidated_blocks_topic_name_(std::move(unvalidated_blocks_topic_name)) {
+    unvalidated_blocks_topic_name_(std::move(unvalidated_blocks_topic_name)),
+    node_id_(std::move(node_id)) {
 
   char errstr[512];
 
@@ -119,6 +120,10 @@ void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, const td::Bu
   td::JsonBuilder jb;
   auto json = jb.enter_object();
 
+  json("node_id", node_id_);
+
+  json("received_timestamp", static_cast<td::int32>(td::Clocks::system()));
+
   // Block identification
   json("block_id", block_id.to_str());
   json("workchain", static_cast<td::int32>(block_id.id.workchain));
@@ -157,6 +162,10 @@ void KafkaPublisher::publish_unvalidated_block(BlockIdExt block_id, const td::Bu
 std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardState> state) {
   td::JsonBuilder jb;
   auto json = jb.enter_object();
+
+  json("node_id", node_id_);
+
+  json("validation_timestamp", static_cast<td::int32>(td::Clocks::system()));
 
   // Block identification
   json("block_id", handle->id().to_str());

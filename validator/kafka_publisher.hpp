@@ -14,7 +14,7 @@ namespace validator {
 
 class KafkaPublisher {
  public:
-  KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name);
+  KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name, std::string node_id);
   ~KafkaPublisher();
   
   // Publishes block information to Kafka
@@ -37,6 +37,8 @@ class KafkaPublisher {
   // Topic name
   std::string blocks_topic_name_;
   std::string unvalidated_blocks_topic_name_;
+
+  std::string node_id_;
 
   // Serializes block data to JSON format
   std::string serialize_block(BlockHandle handle, td::Ref<ShardState> state);
