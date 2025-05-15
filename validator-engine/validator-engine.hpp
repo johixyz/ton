@@ -236,7 +236,14 @@ class ValidatorEngine : public td::actor::Actor {
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
 
+  std::string node_id_ = "";
+
+
  public:
+  void set_node_id(std::string node_id) {
+    node_id_ = std::move(node_id);
+  }
+
   static constexpr td::uint8 max_cat() {
     return 250;
   }

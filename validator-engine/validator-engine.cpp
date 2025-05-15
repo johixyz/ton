@@ -4567,6 +4567,11 @@ int main(int argc, char *argv[]) {
       "disable persistent state serializer (similar to set-state-serializer-enabled 0 in validator console)", [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_state_serializer_disabled_flag); });
       });
+
+  p.add_option('n', "node-id", "set node identifier", [&](td::Slice arg) {
+    acts.push_back([&x, node_id = arg.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_node_id, node_id); });
+  });
+
   p.add_checked_option(
       '\0', "broadcast-speed-catchain",
       "multiplier for broadcast speed in catchain overlays (experimental, default is 1.0, which is ~300 KB/s)",
