@@ -11,7 +11,7 @@ static void kafka_logger(const rd_kafka_t* rk, int level, const char* fac, const
   LOG(ERROR) << "KAFKA (" << level << "): " << fac << ": " << buf;
 }
 
-KafkaPublisher::KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name)
+KafkaPublisher::KafkaPublisher(std::string brokers, std::string blocks_topic_name, std::string unvalidated_blocks_topic_name, std::string node_id)
     : blocks_topic_name_(std::move(blocks_topic_name)),
     unvalidated_blocks_topic_name_(std::move(unvalidated_blocks_topic_name)),
     node_id_(std::move(node_id)) {
