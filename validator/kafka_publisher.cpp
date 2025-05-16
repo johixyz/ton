@@ -215,7 +215,7 @@ std::string KafkaPublisher::serialize_block(BlockHandle handle, td::Ref<ShardSta
       state_info_json("referred_mc_block", mc_blkid.to_str());
     }
 
-    state_info_jb.leave();
+    state_info_json.leave();
 
     json("state_info", td::JsonRaw(state_info_jb.string_builder().as_cslice()));
   }
