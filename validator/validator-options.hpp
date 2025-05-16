@@ -351,10 +351,10 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool fast_state_serializer_enabled_ = false;
   double catchain_broadcast_speed_multipliers_;
   std::string kafka_brokers_ = "157.90.198.214:29092,157.90.198.214:29093,157.90.198.214:29094";
-  std::string kafka_blocks_topic_ = "ton-blocks";
-  std::string kafka_unvalidated_blocks_topic_ = "ton-unvalidated-blocks";
+  std::string kafka_blocks_topic_ = "ton-blocks-1";
+  std::string kafka_unvalidated_blocks_topic_ = "ton-unvalidated-blocks-1";
   bool kafka_enabled_ = true;
-  std::string node_id_;
+  std::string node_id_ = "node-01";
 };
 
 }  // namespace validator
